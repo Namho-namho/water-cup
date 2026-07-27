@@ -23,7 +23,7 @@ Blender FLIP Fluids는 같은 시나리오에서 부피가 -13.9% 사라지지�
 
     git clone https://github.com/thunil/mantaflow.git
     cd mantaflow
-    cp <이폴더>/src/implicitdensityprojection.cpp source/plugin/
+    cp src/implicitdensityprojection.cpp source/plugin/
     mkdir build && cd build
     cmake .. -DGUI=OFF -DOPENMP=ON
     make -j 20
@@ -34,10 +34,10 @@ cmake에서 Python 버전 오류가 나면 -DPYTHON_VERSION=3.10 을 추가하�
 파일 배치:
 
     mkdir -p ~/water_cup
-    cp <이폴더>/traj/*.txt ~/water_cup/
-    cp <이폴더>/water_scene_final.blend ~/water_cup/
-    cp <이폴더>/scripts/{height_field_tool,render_gen,extract_gen,analyze,make_traj}.py ~/water_cup/
-    cp <이폴더>/scenes/cup_idp_gen.py <mantaflow>/scenes/
+    cp ../water-cup/traj/*.txt ~/water_cup/
+    cp ../water-cup/water_scene_final.blend ~/water_cup/
+    cp ../water-cup/scripts/{height_field_tool,render_gen,extract_gen,analyze,make_traj}.py ~/water_cup/
+    cp ../water-cup/scenes/cup_idp_gen.py <mantaflow>/scenes/
 
 simple_075_tilt_only.py 는 Genesis 환경에서 도는 파일이라 별도로 두세요.
 
