@@ -7,6 +7,10 @@
 [예시 영상 (media/example.mp4)](media/example.mp4) — traj_slow225 궤적 + 수위 85mm,
 225프레임(1.79초) 실시간 재생. 기동 중반에 물이 테두리를 넘어 흘러넘칩니다.
 
+기본 궤적은 traj_curveG.txt 입니다. 직선 대신 곡선으로 이동해 원심력이 지속적으로
+걸리므로, 급정지가 아니라 **이동 중에** 물이 서서히 기울다 넘칩니다(f100 부근).
+초반은 등가속으로 아주 느리게 출발하고 곡률이 진행에 따라 커집니다.
+
 ## 구조
 
 Genesis → 컵 궤적(위치+자세, 8ms 간격) → mantaflow(물 시뮬) → Blender(렌더 + 라벨)
@@ -28,7 +32,8 @@ Blender FLIP Fluids는 같은 시나리오에서 부피가 -13.9% 사라지지�
     cmake .. -DGUI=OFF -DOPENMP=ON
     make -j 20
 
-clampToCupAxis 함수가 추가된 파일입니다. 없으면 씬이 실행되지 않습니다.
+clampToCupAxis, countParticlesInCup 함수가 추가되고 이웃 셀 분류의 오프셋 오타를
+고친 파일입니다. 없으면 씬이 실행되지 않습니다.
 cmake에서 Python 버전 오류가 나면 -DPYTHON_VERSION=3.10 을 추가하세요.
 
 파일 배치:
@@ -47,15 +52,15 @@ simple_075_tilt_only.py 는 Genesis 환경에서 도는 파일이라 별도로 �
 
 scenes/cup_idp_gen.py 상단 CONFIG를 수정합니다:
 
-    TRAJ_FILE    = '~/water_cup/traj_slow225.txt'
+    TRAJ_FILE    = '~/water_cup/traj_curveG.txt'
     DT_REAL      = 0.008     # 궤적 프레임 간격(초) — 궤적 생성 설정과 반드시 일치
     WATER_LEVEL  = 0.085     # 초기 수위 (m)
     CUP_OUTER_R  = 0.035
     CUP_INNER_R  = 0.028
     CUP_HEIGHT   = 0.100
     CUP_BOTTOM_T = 0.006
-    OUT_DIR      = '~/water_cup/idp_out'
-    SETTLE_T     = 40.0      # 물이 자리잡는 시간(프레임)
+    OUT_DIR      = '~/water_cup/idp_curveG'
+    SETTLE_T     = 200.0     # 물이 자리잡는 시간(프레임). 40이면 기동 초반에 넘칩니다
     MARGIN       = 10.0      # 도메인 여유(격자)
 
     cd <mantaflow>/build
@@ -79,6 +84,14 @@ scenes/cup_idp_gen.py 상단 CONFIG를 수정합니다:
 
 32x32 배열(단위 m), 컵 안바닥 기준 수면 높이, 컵 밖은 NaN, 유효 616셀.
 
+F_START / F_END 로 구간을 자를 수 있습니다. 물이 격하게 튄 뒤에는 표면 재구성이
+성긴 입자층까지 감싸 수면이 2~5mm 높게 기록되므로, 넘치기 직전까지만 뽑는 것을
+권합니다(curveG 기준 F_END=95).
+
+    MESH_DIR=~/water_cup/idp_curveG OUT_LABELS=~/water_cup/heights_curveG \
+    F_START=0 F_END=95 \
+      blender -b ~/water_cup/water_scene_final.blend --python ~/water_cup/extract_gen.py
+
 ### 3) 렌더 (10~25분)
 
     MESH_DIR=~/water_cup/idp_out OUT_VIDEO=~/water_cup/render/out \
@@ -87,6 +100,20 @@ scenes/cup_idp_gen.py 상단 CONFIG를 수정합니다:
 
 출력: out0000-0224.mp4 (Blender가 프레임 범위를 자동으로 붙임)
 fps = 1/DT_REAL 이라 실시간 재생입니다. 물이 튀는 장면이 많으면 렌더가 느려집니다.
+
+CAM_NAME 으로 카메라를 고릅니다(Camera_e / _n / _w / _s, 45도 부감 4방위).
+F_START / F_END 로 구간을, IMG_MODE=1 로 mp4 대신 PNG 저장을 지정합니다.
+
+    for C in e n w s; do
+      MESH_DIR=~/water_cup/idp_curveG CAM_NAME=Camera_$C \
+      F_START=0 F_END=95 OUT_VIDEO=~/water_cup/render/curveG_$C \
+        blender -b ~/water_cup/water_scene_final.blend --python ~/water_cup/render_gen.py \
+        -a -- --cycles-device CUDA
+    done
+
+씬에는 컵 로컬 +x 방향에 빨간 세로 띠(cup_marker_x)가 붙어 있습니다.
+렌더 스크립트가 매 프레임 컵 자세에 맞춰 위치를 갱신하므로,
+이미지만 보고 컵이 어느 방향을 향하는지 알 수 있습니다.
 
 ### 4) 검증
 
@@ -122,6 +149,19 @@ simple_075_tilt_only.py 상단에서 NO_WATER=True 로 두면 물 없이 빠르�
 (수위를 올려도 이미 깊은 물 영역이라 주기는 크게 변하지 않습니다.)
 기동 시간이 이 주기의 2~3배면 공진에 가까워 크게 출렁이고,
 tilt_period를 64스텝으로 잡으면 공진, 96스텝이면 비공진입니다.
+
+## 클러스터(SLURM)에서 돌리기
+
+slurm/ 의 잡 스크립트를 쓰면 여러 조합을 큐에 쌓아둘 수 있습니다.
+경로와 계정 이름은 본인 환경에 맞게 고치세요.
+
+    sbatch slurm/sim_job.sh
+    sbatch slurm/render_range.sh <메시폴더> <카메라> <출력경로> <시작F> <끝F>
+    squeue -u $USER
+
+주의: GPU 할당이 사용자당 1개로 제한되는 환경에서는 srun 세션이 GPU를 물고 있으면
+sbatch 잡이 QOSMaxGRESPerUser 로 대기합니다. 준비 작업은 srun 으로 하고 반납한 뒤
+본 작업을 sbatch 로 던지세요. 마스터 노드에서는 계산을 돌리지 마세요.
 
 ## 궤적 파일 형식
 
