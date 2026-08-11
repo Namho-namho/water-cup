@@ -22,6 +22,9 @@
 using namespace std;
 namespace Manta {
 
+static long g_idp_fluid = 0, g_idp_surf = 0, g_idp_excl = 0;
+
+
 //******************************************************************************
 // marking of fluid and boundary cells that contain a particle
 KERNEL() void knClearFluidFlags(FlagGrid& flags, int dummy = 0) {
@@ -118,15 +121,27 @@ void knComputeDensity(Grid<T>& density, const FlagGrid& flagsTmp, FlagGrid& flag
 				for (int m = -1; m < 2; m++)
 					for (int n = -1; n < 2; n++)
 						if(flags.isObstacle(i + l, j + m, k + n) || flags.isEmpty(i + l, j + m, k + n))
-							if(l==0 && m==0 || l==0 && k==0 || m==0 && k==0)
+							if(l==0 && m==0 || l==0 && n==0 || m==0 && n==0)
 								density[idx] -= N[l+1] * N[m + 1] * N[n + 1] * mass * 4.0;		//face neighbors
-							else if(l != 0 && m != 0 || l != 0 && k != 0 || m != 0 && k != 0)
+							else if(l != 0 && m != 0 || l != 0 && n != 0 || m != 0 && n != 0)
 								density[idx] -= N[l + 1] * N[m + 1] * N[n + 1] * mass * 2.0;	//edge neighbors
 							else
 								density[idx] -= N[l + 1] * N[m + 1] * N[n + 1] * mass;			//vertex neighbors
 		}
 		
-		if(isSurface && density[idx] > static_cast<Real>(0.0))
+		{
+			#pragma omp atomic
+			g_idp_fluid++;
+			if (isSurface) {
+				#pragma omp atomic
+				g_idp_surf++;
+				if (density[idx] > static_cast<Real>(0.0)) {
+					#pragma omp atomic
+					g_idp_excl++;
+				}
+			}
+		}
+		if(isSurface && density[idx] > static_cast<Real>(0.25))
 		{
 			flags[idx] = FlagGrid::TypeEmpty;
 			density[idx] = 0;
@@ -348,6 +363,16 @@ PYTHON() void clampToCup(BasicParticleSystem& parts, ParticleDataImpl<Vec3>& pve
 
 //! clamp particles into a tilted cylindrical cup
 //! base = center of inner floor, axis = unit vector along cup "up"
+
+PYTHON() void idpStats() {
+	printf("IDPSTAT fluid=%ld surf=%ld excl=%ld surfpct=%.1f exclpct=%.1f\n",
+	       g_idp_fluid, g_idp_surf, g_idp_excl,
+	       g_idp_fluid ? 100.0*g_idp_surf/g_idp_fluid : 0.0,
+	       g_idp_surf ? 100.0*g_idp_excl/g_idp_surf : 0.0);
+	fflush(stdout);
+	g_idp_fluid = g_idp_surf = g_idp_excl = 0;
+}
+
 PYTHON() void clampToCupAxis(BasicParticleSystem& parts, ParticleDataImpl<Vec3>& pvel,
                              Vec3 base, Vec3 axis, Real innerR, Real outerR, Real height, Real eps=0.15) {
 	Vec3 a = getNormalized(axis);
@@ -375,6 +400,23 @@ PYTHON() void clampToCupAxis(BasicParticleSystem& parts, ParticleDataImpl<Vec3>&
 		}
 		if (ch) parts.setPos(idx, p);
 	}
+}
+
+
+//! count particles inside a tilted cylindrical cup
+PYTHON() int countParticlesInCup(BasicParticleSystem& parts, Vec3 base, Vec3 axis,
+                                 Real innerR, Real height) {
+	Vec3 a = getNormalized(axis);
+	int cnt = 0;
+	for (IndexInt idx=0; idx<parts.size(); idx++) {
+		if (!parts.isActive(idx)) continue;
+		Vec3 d = parts.getPos(idx) - base;
+		Real h = dot(d, a);
+		if (h < 0 || h > height) continue;
+		if (norm(d - a*h) > innerR) continue;
+		cnt++;
+	}
+	return cnt;
 }
 
 } // namespace

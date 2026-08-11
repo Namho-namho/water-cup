@@ -29,16 +29,16 @@ H = 0.368 / 152.0
 # ============================================================
 # CONFIG  (여기만 고치면 됨)
 # ============================================================
-TRAJ_FILE    = '~/water_cup/traj_slow225.txt'   # 컵 궤적 (x y z qw qx qy qz)
+TRAJ_FILE    = '~/water_cup/traj_curveG.txt'   # 컵 궤적 (x y z qw qx qy qz)
 DT_REAL      = 0.008               # 궤적 프레임 간격(초) - 궤적 생성 설정과 일치해야 함
 WATER_LEVEL  = 0.085               # 초기 수위 (m, 컵 안바닥 기준)
 CUP_OUTER_R  = 0.035
 CUP_INNER_R  = 0.028
 CUP_HEIGHT   = 0.100
 CUP_BOTTOM_T = 0.006
-OUT_DIR      = '~/water_cup/idp_out'
-SETTLE_T     = 40.0                # 정착 프레임 수
-MARGIN       = 10.0                 # 도메인 여유 (격자)
+OUT_DIR      = '~/water_cup/idp_curveG'
+SETTLE_T     = 200.0                # 정착 프레임 수
+MARGIN       = 5.0                 # 도메인 여유 (격자)
 
 # ---- 궤적 로드 ----
 traj=[]
@@ -72,6 +72,8 @@ _chk(cupCenterX+min(_dx)-_R, cupCenterX+max(_dx)+_R, gs.x, 'x')
 _chk(cupCenterZ+min(_dy)-_R, cupCenterZ+max(_dy)+_R, gs.z, 'z(이동)')
 _chk(cupBottom+min(_dz)-MARGIN, cupBottom+max(_dz)+CUP_HEIGHT/H+MARGIN, gs.y, 'y(높이)')
 
+import time as _time
+_t_start=_time.time()
 print('--- CONFIG ---', flush=True)
 print('  traj      : %s (%d frames, dt=%.4f s, 총 %.2f s)' % (TRAJ_FILE, NT, DT_REAL, (NT-1)*DT_REAL), flush=True)
 print('  sim frames: %d (1 frame = %.3f ms, TFRAME=%.2f)' % (TOTAL, DT_REAL/TFRAME*1000, TFRAME), flush=True)
@@ -500,8 +502,6 @@ for t in range(TOTAL):
         parts=pp,
         flags=flags
     )
-
-
     # --------------------------------------------------------
     # 5. Gravity
     #
@@ -584,10 +584,11 @@ for t in range(TOTAL):
         index=gpi,
         phi=phi,
         radiusFactor=2.2,
-        smoothen=2,
-        smoothenNeg=2
+        smoothen=3,
+        smoothenNeg=3
     )
 
+    # 재구성 커널이 표면을 바깥으로 밀어내는 것을 보정 (offset_test로 0.3 결정)
     phi.createMesh(mesh)
 
     meshPath = os.path.join(
@@ -601,6 +602,14 @@ for t in range(TOTAL):
     )
 
     mesh.save(meshPath)
+    # ---- 컵 안팎 입자 수 세기 ----
+    _gx,_gy,_gz = cup_pos(s.timeTotal)
+    _ax,_ay,_az = cup_axis(s.timeTotal)
+    _base = vec3(_gx+_ax*bottomThickness, _gy+_ay*bottomThickness, _gz+_az*bottomThickness)
+    _n_in = countParticlesInCup(parts=pp, base=_base, axis=vec3(_ax,_ay,_az),
+                                innerR=innerRadius, height=cupHeight-bottomThickness)
+    print('PARTCOUNT %d %d %d' % (t, _n_in, pp.pySize()), flush=True)
+    pp.save(meshPath.replace('mesh_','parts_').replace('.bobj.gz','.uni'))
 
 
     # --------------------------------------------------------
@@ -617,3 +626,16 @@ mantaMsg(
         pp.pySize()
     )
 )
+
+# ---- 소요 시간 기록 ----
+_dt=_time.time()-_t_start
+import csv as _csv, datetime as _dtm
+_log=os.path.expanduser('~/water_cup/timing_log.csv')
+_new=not os.path.exists(_log)
+with open(_log,'a',newline='') as _f:
+    _w=_csv.writer(_f)
+    if _new: _w.writerow(['datetime','scenario','stage','seconds','detail'])
+    _w.writerow([_dtm.datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                 os.path.basename(OUT).replace('idp_',''),'sim',f'{_dt:.0f}',
+                 f'traj={NT}f water={WATER_LEVEL*1000:.0f}mm sim={TOTAL}f'])
+print(f'[timing] sim: {_dt/60:.1f}분', flush=True)

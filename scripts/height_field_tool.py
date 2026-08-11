@@ -8,6 +8,7 @@ CUP_INNER_R = 0.030
 SAMPLE_R = 0.027   # 벽 인접 3mm 제외 (광선이 옆면 맞는 구간)
 CUP_BASE_Z  = 0.005
 RAY_START_Z = 0.30
+RIM_MAX     = 0.104   # 컵 테두리(94mm) + 여유 4mm. 이보다 높은 교점은 물방울로 간주
 # ================================================================
 
 _xs = np.linspace(-CUP_INNER_R, CUP_INNER_R, GRID_N)
@@ -35,11 +36,21 @@ def extract_height_field(water_object, cup_pose):
             if dx*dx + dy*dy > SAMPLE_R**2:
                 continue
             o_local = mw_inv @ (cup_pos + cup_quat @ Vector((dx, dy, RAY_START_Z)))
-            hit, loc, _, _ = w_eval.ray_cast(o_local, d_local)
-            if hit:
+            # 공중의 물방울을 건너뛰고 컵 안 수면을 찾는다.
+            # 광선을 위에서 아래로 쏘며 교점을 차례로 받아, RIM_MAX 아래 첫 교점을 채택.
+            o = o_local.copy()
+            h = None
+            for _ in range(8):
+                hit, loc, _, _ = w_eval.ray_cast(o, d_local)
+                if not hit:
+                    break
                 hit_cup = cup_quat.inverted() @ ((mw @ loc) - cup_pos)
-                h = hit_cup.z - CUP_BASE_Z
-                hf[i, j] = h if h >= 0 else np.nan    # 컵 바닥 아래 교점 = 컵 밖 물 -> 무시
+                hh = hit_cup.z - CUP_BASE_Z
+                if hh <= RIM_MAX:
+                    h = hh
+                    break
+                o = loc + d_local * 1e-4      # 그 교점 바로 아래에서 다시 발사
+            hf[i, j] = h if (h is not None and h >= 0) else np.nan
     return hf
 
 print("height_field_tool loaded: extract_height_field(water_object, cup_pose)")

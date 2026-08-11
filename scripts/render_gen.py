@@ -40,17 +40,56 @@ def update(scene):
     bpy.data.meshes.remove(old)
     j=min(i,NT-1)
     cup.rotation_mode='QUATERNION'
-    cup.location=traj[j][:3]
-    cup.rotation_quaternion=tuple(traj[j][3:7])
+    cup.location=traj[i][:3]
+    cup.rotation_quaternion=tuple(traj[i][3:7])
+    mk=bpy.data.objects.get('cup_marker_x')
+    if mk is not None:
+        from mathutils import Quaternion, Vector
+        q=Quaternion(tuple(traj[i][3:7]))
+        off=q @ Vector((0.0335, 0.0, 0.050))   # 컵 로컬 +x 바깥면, 높이 50mm
+        mk.location=Vector(traj[i][:3]) + off
+        mk.rotation_mode='QUATERNION'
+        mk.rotation_quaternion=q
 bpy.app.handlers.frame_change_pre.clear()
 bpy.app.handlers.frame_change_pre.append(update)
 sc=bpy.context.scene
-sc.frame_start=0; sc.frame_end=NT-1
+_cam=os.environ.get("CAM_NAME")
+if _cam and _cam in bpy.data.objects:
+    sc.camera=bpy.data.objects[_cam]
+    print(f"카메라: {_cam}", flush=True)
+sc.render.use_multiview=False
+sc.frame_start=int(os.environ.get("F_START", 0))
+sc.frame_end=int(os.environ.get("F_END", NT-1))
+print('[render] frames %d~%d' % (sc.frame_start, sc.frame_end), flush=True)
 sc.cycles.transmission_bounces=12
 sc.cycles.max_bounces=16
 sc.cycles.samples=64
 sc.render.fps=int(round(1.0/M['DT_REAL']))
-sc.render.image_settings.file_format='FFMPEG'
+if os.environ.get("IMG_MODE") == "1":
+    sc.render.image_settings.file_format='PNG'
+else:
+    sc.render.image_settings.file_format='FFMPEG'
 sc.render.ffmpeg.format='MPEG4'; sc.render.ffmpeg.codec='H264'
 sc.render.filepath=os.path.expanduser(os.environ.get("OUT_VIDEO","~/water_cup/render/out"))
 print(f"렌더 준비: {NT}프레임, fps={sc.render.fps}", flush=True)
+
+# ---- GPU 장치 설정 (서버용) ----
+try:
+    _prefs = bpy.context.preferences.addons['cycles'].preferences
+    _ok = None
+    for _t in ('OPTIX', 'CUDA'):
+        _prefs.compute_device_type = _t
+        _prefs.get_devices()
+        if any(d.type == _t for d in _prefs.devices):
+            for d in _prefs.devices:
+                d.use = (d.type == _t)
+            _ok = _t
+            break
+    if _ok:
+        sc.cycles.device = 'GPU'
+        print('[gpu] %s | %s' % (_ok, [d.name for d in _prefs.devices if d.use]), flush=True)
+    else:
+        sc.cycles.device = 'CPU'
+        print('[gpu] GPU 없음 -> CPU 사용', flush=True)
+except Exception as _e:
+    print('[gpu] 설정 실패:', _e, flush=True)
