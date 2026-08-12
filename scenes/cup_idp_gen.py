@@ -387,7 +387,7 @@ def set_cup(tt):
     obsVel.setBound(value=vec3(0.), boundaryWidth=2)
 
 _SETTLE_CACHE = os.path.expanduser(
-    '~/water_cup/settle_cache/w%d_g%d.uni' % (int(WATER_LEVEL*1000), int(gs.x)))
+    os.path.dirname(OUT_DIR) + '/settle_cache/w%d_g%d.uni' % (int(WATER_LEVEL*1000), int(gs.x)))
 _settle_skip = os.path.exists(_SETTLE_CACHE)
 if _settle_skip:
     pp.load(_SETTLE_CACHE)

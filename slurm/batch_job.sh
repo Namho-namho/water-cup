@@ -32,10 +32,12 @@ MESH_DIR=$W/sim_$I OUT_LABELS=$W/out/$I/height \
   /data/$USER/blender-4.5.3-linux-x64/blender -b $W/water_scene_final.blend \
   --python $W/extract_gen.py || exit 1
 
-# 렌더 (PNG, Camera_e)
-MESH_DIR=$W/sim_$I CAM_NAME=Camera_e IMG_MODE=1 OUT_VIDEO=$W/out/$I/img_ \
-  /data/$USER/blender-4.5.3-linux-x64/blender -b $W/water_scene_final.blend \
-  --python $W/render_gen.py -a || exit 1
+# 렌더 (PNG, 4방향)
+for C in e n w s; do
+  MESH_DIR=$W/sim_$I CAM_NAME=Camera_$C IMG_MODE=1 OUT_VIDEO=$W/out/$I/${C}_ \
+    /data/$USER/blender-4.5.3-linux-x64/blender -b $W/water_scene_final.blend \
+    --python $W/render_gen.py -a || exit 1
+done
 
 # 메시 삭제 (용량 절약)
 rm -rf $W/sim_$I $S

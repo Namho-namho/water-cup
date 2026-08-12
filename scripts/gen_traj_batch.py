@@ -13,7 +13,7 @@ import os, sys, math, random, subprocess, csv
 ROOT = os.path.expanduser(os.environ.get('TRAJ_ROOT', '~/water_cup/batch'))
 TEMPLATE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'traj_curveG.py')
 WATER_LEVELS = [0.055, 0.065, 0.075, 0.085]
-KINDS = ['curve', 'stop', 'shake', 'zigzag', 'tilt']
+KINDS = ['static', 'curve', 'stop', 'shake', 'zigzag', 'tilt']
 
 MARK = '    frame["save_on"] = True'
 END  = '    settle(20)'   # 이동 구간 끝. 이후(내려놓기)는 저장 안 함
@@ -26,20 +26,24 @@ def params(idx):
     p = {
         'idx': idx,
         'kind': k,
-        'water': r.choice(WATER_LEVELS),
+        'water': WATER_LEVELS[(idx // len(KINDS)) % len(WATER_LEVELS)],
         'dist': round(r.uniform(0.24, 0.40), 4),      # 이동 거리(m)
         'step': r.randint(5, 8),                       # 조각당 스텝(속도)
         'seg':  0,                                     # 아래에서 결정
     }
-    p['seg'] = max(12, int(round(200.0 / p['step'])))   # 총 ~200스텝 = 100프레임
+    _target = 300 if idx <= 11 else 400   # 1~11: 150프레임, 12~25: 200프레임
+    p['seg'] = max(12, int(round(_target / float(p['step']))))
     if k == 'curve':
         p['amp'] = round(r.uniform(0.05, 0.18), 4)     # 곡선 세기
         p['amp0'] = round(r.uniform(0.02, 0.08), 4)
     elif k == 'stop':
         p['accel'] = r.choice([2, 3])                  # u^2 / u^3
     elif k == 'shake':
-        p['sh_amp'] = round(r.uniform(0.02, 0.05), 4)  # 진폭(m)
-        p['sh_cyc'] = round(r.uniform(1.5, 4.0), 2)    # 주기 수
+        p['sh_amp'] = round(r.uniform(0.015, 0.055), 4)  # 진폭(m)
+        p['sh_cyc'] = round(r.uniform(1.0, 4.5), 2)      # 주기 수
+        p['sh_axis'] = r.choice(['y', 'x'])              # y=좌우, x=앞뒤
+    elif k == 'static':
+        p['nudge'] = round(r.uniform(0.0, 0.02), 4)      # 아주 작은 흔들림(m)
     elif k == 'zigzag':
         p['zz_amp'] = round(r.uniform(0.04, 0.12), 4)
         p['zz_cyc'] = round(r.uniform(1.0, 3.0), 2)
@@ -80,7 +84,16 @@ def body(p):
     _N = {p['seg']}
     for _k in range(1, _N + 1):
         _u = _k / float(_N)
-        _y = {p['sh_amp']} * _m.sin(2.0 * _m.pi * {p['sh_cyc']} * _u)
+        _d = {p['sh_amp']} * _m.sin(2.0 * _m.pi * {p['sh_cyc']} * _u)
+        _px = GRASP_X + (_d if '{p['sh_axis']}' == 'x' else 0.0)
+        _py = _d if '{p['sh_axis']}' == 'y' else 0.0
+        move_lin((_px, _py, Z_LIFT), side, {p['step']}, FINGER_GRASP)"""
+    if k == 'static':
+        return f"""    import math as _m
+    _N = {p['seg']}
+    for _k in range(1, _N + 1):
+        _u = _k / float(_N)
+        _y = {p['nudge']} * _m.sin(2.0 * _m.pi * 1.0 * _u)
         move_lin((GRASP_X, _y, Z_LIFT), side, {p['step']}, FINGER_GRASP)"""
     if k == 'tilt':
         cyc = p['tilt_cyc']
@@ -136,7 +149,7 @@ if __name__ == '__main__':
             w = csv.DictWriter(f, fieldnames=[
                 'idx','kind','water','dist','step','seg',
                 'amp','amp0','accel','sh_amp','sh_cyc','zz_amp','zz_cyc',
-                'tilt_deg','tilt_cyc','vz_amp','vz_cyc'])
+                'tilt_deg','tilt_cyc','sh_axis','nudge'])
             w.writeheader()
             for i in range(1, n + 1):
                 w.writerow(params(i))

@@ -13,7 +13,8 @@
         cp water_scene_final.blend /data/$USER/water_cup/
         cp scripts/{height_field_tool,render_gen,extract_gen,make_traj}.py /data/$USER/water_cup/
         cp scenes/cup_idp_gen.py /data/$USER/mantaflow/scenes/
-        cp traj/params.csv /data/$USER/water_cup/batch/
+        mkdir -p /data/$USER/water_cup/batch
+        cp traj/batch/*.txt traj/batch/params.csv /data/$USER/water_cup/batch/
 
 ## 실행
 
@@ -38,6 +39,16 @@
 
 수위는 55 / 65 / 75 / 85mm 중 무작위, 궤적 길이는 100프레임(0.8초)입니다.
 출발 위치와 들어올리기 동작은 모든 궤적이 동일합니다.
+
+## 포함된 궤적
+
+`traj/batch/` 에 25개가 들어 있습니다(`traj_0001.txt` ~ `traj_0025.txt`).
+Genesis에서 Franka가 실제로 컵을 쥐고 움직인 결과이며, 각 파일은 약 100프레임(0.8초)입니다.
+`params.csv` 에 인덱스별 유형과 수위가 기록되어 있고, 배치 잡이 이 파일에서 수위를 읽습니다.
+
+측정값 범위: 최대 속도 0.05~1.03 m/s, 최대 가속도 1.4~15.0 m/s²(평균 6.2).
+일부 궤적(4, 10, 16, 22번)은 가속도가 12를 넘어 실제 하드웨어 재현이 어려울 수 있습니다.
+학습 데이터로는 무관하지만 실기 검증 때 참고하세요.
 
 ## 결과 구조
 
