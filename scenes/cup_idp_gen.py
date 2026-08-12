@@ -386,7 +386,20 @@ def set_cup(tt):
     obsVel.setConst(vec3(px1-px0, py1-py0, pz1-pz0))
     obsVel.setBound(value=vec3(0.), boundaryWidth=2)
 
+_SETTLE_CACHE = os.path.expanduser(
+    '~/water_cup/settle_cache/w%d_g%d.uni' % (int(WATER_LEVEL*1000), int(gs.x)))
+_settle_skip = os.path.exists(_SETTLE_CACHE)
+if _settle_skip:
+    pp.load(_SETTLE_CACHE)
+    pVel.load(_SETTLE_CACHE.replace('.uni', '_vel.uni'))
+    print('[settle] 캐시 로드: %s' % _SETTLE_CACHE, flush=True)
+else:
+    print('[settle] 캐시 없음 -> 정착 계산 후 저장', flush=True)
+
 for t in range(TOTAL):
+    # 정착 구간: 캐시가 있으면 계산을 건너뛰고 시간만 진행
+    if _settle_skip and t < SETTLE_T:
+        s.step(); continue
 
     # Adaptive time stepping
     maxVel = vel.getMax()
@@ -568,6 +581,11 @@ for t in range(TOTAL):
     # 8. Reconstruct and save the liquid mesh
     # --------------------------------------------------------
 
+    if (not _settle_skip) and t == int(SETTLE_T) - 1:
+        os.makedirs(os.path.dirname(_SETTLE_CACHE), exist_ok=True)
+        pp.save(_SETTLE_CACHE)
+        pVel.save(_SETTLE_CACHE.replace('.uni', '_vel.uni'))
+        print('[settle] 캐시 저장: %s' % _SETTLE_CACHE, flush=True)
     if t < SETTLE_T or (round((t-SETTLE_T)/TFRAME)*TFRAME+SETTLE_T-t)**2 > 0.30:
         s.step(); continue
     gridParticleIndex(
