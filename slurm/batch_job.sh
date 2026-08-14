@@ -27,15 +27,17 @@ sed -e "s|^TRAJ_FILE.*|TRAJ_FILE    = '$B/traj_$I.txt'|" \
 cd /data/$USER/mantaflow/build
 ./manta $S || exit 1
 
-# 라벨
-MESH_DIR=$W/sim_$I OUT_LABELS=$W/out/$I/height \
-  /data/$USER/blender-4.5.3-linux-x64/blender -b $W/water_scene_final.blend \
-  --python $W/extract_gen.py || exit 1
-
-# 렌더 (PNG, 4방향)
+# 라벨 + 렌더 (4방향). 라벨 격자가 카메라 방위각을 따르므로 방향마다 같이 뽑는다.
+BLENDER=/data/$USER/blender-4.5.3-linux-x64/blender
 for C in e n w s; do
+  # 라벨 -> out/$I/height_$C/height_XXXX.npy
+  MESH_DIR=$W/sim_$I CAM_NAME=Camera_$C OUT_LABELS=$W/out/$I/height_$C \
+    $BLENDER -b $W/water_scene_final.blend \
+    --python $W/extract_gen.py || exit 1
+
+  # 렌더 -> out/$I/${C}_XXXX.png
   MESH_DIR=$W/sim_$I CAM_NAME=Camera_$C IMG_MODE=1 OUT_VIDEO=$W/out/$I/${C}_ \
-    /data/$USER/blender-4.5.3-linux-x64/blender -b $W/water_scene_final.blend \
+    $BLENDER -b $W/water_scene_final.blend \
     --python $W/render_gen.py -a || exit 1
 done
 

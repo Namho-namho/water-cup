@@ -11,7 +11,7 @@
 
         mkdir -p /data/$USER/water_cup/logs
         cp water_scene_final.blend /data/$USER/water_cup/
-        cp scripts/{height_field_tool,render_gen,extract_gen,make_traj}.py /data/$USER/water_cup/
+        cp scripts/{height_field_tool,render_gen,extract_gen,make_traj,check_labels}.py /data/$USER/water_cup/
         cp scenes/cup_idp_gen.py /data/$USER/mantaflow/scenes/
         mkdir -p /data/$USER/water_cup/batch
         cp traj/batch/*.txt traj/batch/params.csv /data/$USER/water_cup/batch/
@@ -54,12 +54,26 @@ Genesis에서 Franka가 실제로 컵을 쥐고 움직인 결과이며, 각 파�
 
     /data/$USER/water_cup/out/
       0001/
-        height/height_0000.npy ... height_0099.npy   # 32x32 float, 단위 m
-        img_0000.png ... img_0099.png                # Camera_e, 1200x720
+        e_0000.png ... e_0099.png                       # Camera_e, 1280x720
+        height_e/height_0000.npy ... height_0099.npy    # 32x32 float, 단위 m
+        n_0000.png ... / height_n/                      # Camera_n
+        w_0000.png ... / height_w/                      # Camera_w
+        s_0000.png ... / height_s/                      # Camera_s
       0002/
         ...
 
+라벨 격자가 카메라 방향을 따르므로 방향마다 이미지와 라벨을 같이 뽑습니다.
+격자 평면은 컵 축에 수직인 평면이고, 그 평면 안에서 격자를 몇 도 돌릴지를 카메라
+광축이 정합니다. 컵이 자기축으로 돌아도 라벨은 따라 돌지 않습니다.
+`height_*/label_meta.json` 에 격자 기준·카메라·프레임별 회전각이 기록됩니다.
+마커(`cup_marker_x`)는 렌더에서 숨겨집니다(`SHOW_MARKER=1` 이면 표시).
 메시(`sim_XXXX/`)는 라벨·렌더가 끝나면 자동 삭제됩니다.
+
+## 라벨 검증
+
+    python3 scripts/check_labels.py /data/$USER/water_cup/out/0001
+
+유효셀 616개, 네 방향 평균 일치, 네 방향이 서로 회전 관계인지 확인합니다.
 
 ## 비용
 
@@ -67,7 +81,7 @@ Genesis에서 Franka가 실제로 컵을 쥐고 움직인 결과이며, 각 파�
 |---|---|---|
 | 궤적 | 5분 | 42시간 |
 | 시뮬 | 8분 (정착 캐시 사용 시) | 67시간 |
-| 라벨 | 1분 | 8시간 |
+| 라벨 | 4분 (4방향) | 33시간 |
 | 렌더 | 12분 | 100시간 |
 
 총 용량 약 40GB (PNG 100장 × 1000).

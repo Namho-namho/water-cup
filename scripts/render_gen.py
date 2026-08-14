@@ -58,6 +58,13 @@ if _cam and _cam in bpy.data.objects:
     sc.camera=bpy.data.objects[_cam]
     print(f"카메라: {_cam}", flush=True)
 sc.render.use_multiview=False
+# 마커는 위치 갱신은 계속 하되(디버그용) 렌더에서는 기본으로 숨긴다.
+# 라벨 격자를 카메라 기준으로 뽑으므로 학습 이미지에 컵 회전 단서를 남기지 않는다.
+_show_marker = os.environ.get("SHOW_MARKER", "0") == "1"
+_mk = bpy.data.objects.get('cup_marker_x')
+if _mk is not None:
+    _mk.hide_render = not _show_marker
+    print(f"마커: {'표시' if _show_marker else '숨김'}", flush=True)
 sc.frame_start=int(os.environ.get("F_START", 0))
 sc.frame_end=int(os.environ.get("F_END", NT-1))
 print('[render] frames %d~%d' % (sc.frame_start, sc.frame_end), flush=True)

@@ -2,3 +2,6 @@ __pycache__/
 *.pyc
 *.blend1
 *.bak
+
+water_cup/
+water_cup.zip
