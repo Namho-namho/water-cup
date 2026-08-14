@@ -33,7 +33,9 @@ def rb(p):
     tris=np.frombuffer(data,dtype=np.int32,count=nt*3,offset=off).reshape(-1,3)
     return verts.astype(np.float64), tris
 n=0
-azim={}; gang={}
+azim={}; gang={}; bad=[]
+# 이보다 유효 셀이 적은 프레임은 못 쓸 라벨로 보고 NaN 처리한다 (전체 616셀 중)
+MIN_VALID=int(os.environ.get("MIN_VALID", 62))
 _S=int(os.environ.get("F_START",0)); _E=int(os.environ.get("F_END",NT-1))
 print(f"[labels] frames {_S}~{_E}", flush=True)
 for i in range(_S, _E+1):
@@ -50,12 +52,22 @@ for i in range(_S, _E+1):
     bpy.data.meshes.remove(old)
     pose=np.array(traj[i][:7])
     hf=extract_height_field(water_obj, pose)
+    nv=int(np.count_nonzero(~np.isnan(hf)))
+    # 유효 셀이 없거나 지나치게 적으면 그 프레임만 버린다(전부 NaN으로 저장).
+    # 물이 컵 밖에 있는 시뮬(정착 캐시 오정렬 등)에서도 시퀀스 전체가 날아가지 않게 한다.
+    if nv < MIN_VALID:
+        print(f"[warn] f{i:04d} 유효 셀 {nv}개 (<{MIN_VALID}) -> NaN 프레임으로 저장", flush=True)
+        hf=np.full_like(hf, np.nan)
+        bad.append(i); nv=0
     np.save(f"{OUT_DIR}/height_{i:04d}.npy", hf)
     azim[i]=grid_azimuth_deg(pose); gang[i]=grid_angle_deg(pose)
     n+=1
     if i%30==0:
         vv=hf[~np.isnan(hf)]
-        print(f"[{i}/{NT}] 유효 {len(vv)} 평균 {vv.mean()*1000:.1f}mm 폭 {(vv.max()-vv.min())*1000:.1f}mm", flush=True)
+        if vv.size:
+            print(f"[{i}/{NT}] 유효 {vv.size} 평균 {vv.mean()*1000:.1f}mm 폭 {(vv.max()-vv.min())*1000:.1f}mm", flush=True)
+        else:
+            print(f"[{i}/{NT}] 유효 0 — 광선이 수면을 못 찾음", flush=True)
 json.dump({'label_frame':LABEL_FRAME, 'grid_plane':GRID_PLANE, 'cam_azim':CAM_AZIM,
            'camera':CAM_NAME or (bpy.context.scene.camera.name
            if bpy.context.scene.camera else None),
@@ -65,6 +77,10 @@ json.dump({'label_frame':LABEL_FRAME, 'grid_plane':GRID_PLANE, 'cam_azim':CAM_AZ
            'grid_angle_deg':{str(k):v for k,v in sorted(gang.items())}},
           open(f"{OUT_DIR}/label_meta.json",'w'), indent=1)
 print(f"완료 {n}개 -> {OUT_DIR}", flush=True)
+if bad:
+    print(f"[warn] 못 쓰는 프레임 {len(bad)}/{n}개: {bad[:20]}{' ...' if len(bad)>20 else ''}", flush=True)
+    print("[warn] 첫 프레임부터 비었다면 물이 컵 밖에 있는 시뮬이다. "
+          "scripts/debug_frame.py 로 메시 위치를 확인하라", flush=True)
 
 import csv as _csv, datetime as _dtm
 _dt=_time.time()-_t0

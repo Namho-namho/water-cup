@@ -58,19 +58,62 @@ _dz=[(p[2]-traj[0][2])/H for p in traj]      # world z(up) -> grid y
 
 _R = CUP_OUTER_R/H + MARGIN
 # 좌우 방향은 이동 구간을 도메인 중앙에 배치
-cupCenterX = gs.x*0.5 - 0.5*(min(_dx)+max(_dx))
-cupCenterZ = gs.z*0.5 - 0.5*(min(_dy)+max(_dy))
+_ownCenterX = gs.x*0.5 - 0.5*(min(_dx)+max(_dx))
+_ownCenterZ = gs.z*0.5 - 0.5*(min(_dy)+max(_dy))
 # 수직은 최저점이 바닥에서 MARGIN 위에 오도록
-cupBottom  = MARGIN + 2.0 - min(_dz)
+_ownBottom  = MARGIN + 2.0 - min(_dz)
 
 # ---- 도메인 범위 검사 ----
-def _chk(lo,hi,size,name):
-    assert lo>=1.0 and hi<=size-1.0, (
-        f'{name} 방향 도메인 초과: {lo:.1f}~{hi:.1f} (도메인 0~{size:.0f}). '
-        f'격자를 키우거나 궤적 이동 범위를 줄이세요')
-_chk(cupCenterX+min(_dx)-_R, cupCenterX+max(_dx)+_R, gs.x, 'x')
-_chk(cupCenterZ+min(_dy)-_R, cupCenterZ+max(_dy)+_R, gs.z, 'z(이동)')
-_chk(cupBottom+min(_dz)-MARGIN, cupBottom+max(_dz)+CUP_HEIGHT/H+MARGIN, gs.y, 'y(높이)')
+def _fits(cx, cb, cz):
+    """이 컵 배치로 궤적 전체가 도메인 안에 들어오는지. 안 되면 이유를 돌려준다."""
+    for lo,hi,size,name in (
+        (cx+min(_dx)-_R,               cx+max(_dx)+_R,                        gs.x, 'x'),
+        (cz+min(_dy)-_R,               cz+max(_dy)+_R,                        gs.z, 'z(이동)'),
+        (cb+min(_dz)-MARGIN,           cb+max(_dz)+CUP_HEIGHT/H+MARGIN,       gs.y, 'y(높이)')):
+        if not (lo>=1.0 and hi<=size-1.0):
+            return (f'{name} 방향 도메인 초과: {lo:.1f}~{hi:.1f} (도메인 0~{size:.0f})')
+    return None
+
+# ---- 정착 캐시: 컵 배치까지 맞춰야 재사용할 수 있다 ----
+# 캐시에는 입자가 격자 절대 좌표로 들어 있는데 컵 배치는 궤적마다 다르다.
+# 배치가 다른 캐시를 그냥 읽으면 물이 컵 밖에서 시작한다. 그래서 캐시를 쓸 때는
+# 캐시를 만든 궤적의 컵 배치를 그대로 채택한다(정착 중에는 컵이 정지해 있으므로
+# 평행이동만으로 정확하다). 그 배치로 궤적이 도메인을 벗어나면 캐시를 버리고
+# 자기 정착을 계산한다.
+# v2: 배치 정보(.json)가 함께 저장된 형식. v1 캐시는 위치를 알 수 없어 쓰지 않는다.
+_SETTLE_CACHE = os.path.expanduser(
+    os.path.dirname(OUT_DIR) + '/settle_cache/w%d_g%d_v2.uni' % (int(WATER_LEVEL*1000), int(gs.x)))
+_SETTLE_META  = _SETTLE_CACHE.replace('.uni', '.json')
+
+import json as _json
+cupCenterX, cupBottom, cupCenterZ = _ownCenterX, _ownBottom, _ownCenterZ
+_settle_skip = False        # True면 캐시를 읽어 정착 구간을 건너뛴다
+_settle_write = True        # 쓸 만한 캐시가 이미 있으면 덮어쓰지 않는다
+_settle_note = '캐시 없음 -> 정착 계산 후 저장'
+if os.path.exists(_SETTLE_CACHE) and os.path.exists(_SETTLE_META):
+    try:
+        _cm = _json.load(open(_SETTLE_META))
+        _cx, _cb, _cz = float(_cm['cupCenterX']), float(_cm['cupBottom']), float(_cm['cupCenterZ'])
+    except Exception as _e:
+        _cx = None
+        _settle_note = '캐시 메타 읽기 실패(%s) -> 정착 계산 후 저장' % _e
+    if _cx is not None:
+        _why = _fits(_cx, _cb, _cz)
+        if _why is None:
+            cupCenterX, cupBottom, cupCenterZ = _cx, _cb, _cz
+            _settle_skip = True
+            _settle_note = '캐시 사용 (캐시의 컵 배치를 채택)'
+        else:
+            # 남이 잘 쓰고 있는 캐시다. 이 궤적만 자기 정착을 쓰고 캐시는 그대로 둔다.
+            _settle_write = False
+            _settle_note = '캐시 배치로는 %s -> 캐시 무시하고 자기 정착 계산' % _why
+
+_shift = (((cupCenterX-_ownCenterX)**2 + (cupBottom-_ownBottom)**2
+           + (cupCenterZ-_ownCenterZ)**2) ** 0.5)
+
+# 자기 배치를 쓰는 경우에만 검사한다(캐시 배치는 위에서 이미 통과한 것만 채택).
+_own_why = _fits(cupCenterX, cupBottom, cupCenterZ)
+assert _own_why is None, _own_why + '. 격자를 키우거나 궤적 이동 범위를 줄이세요'
 
 import time as _time
 _t_start=_time.time()
@@ -82,6 +125,11 @@ print('  water     : %.1f mm | cup in/out R %.1f/%.1f mm, h %.1f mm' % (
 print('  cup start : x=%.1f y=%.1f z=%.1f (grid)' % (cupCenterX, cupBottom, cupCenterZ), flush=True)
 print('  travel    : x %.1f~%.1f | z %.1f~%.1f | y %.1f~%.1f (grid)' % (
       min(_dx),max(_dx),min(_dy),max(_dy),min(_dz),max(_dz)))
+print('  settle    : %s' % _settle_note, flush=True)
+print('              cache=%s' % _SETTLE_CACHE, flush=True)
+print('              자기 배치 x=%.1f y=%.1f z=%.1f -> 채택 배치 x=%.1f y=%.1f z=%.1f '
+      '(이동 %.1f셀 = %.1fmm)' % (_ownCenterX, _ownBottom, _ownCenterZ,
+                                  cupCenterX, cupBottom, cupCenterZ, _shift, _shift*H*1000), flush=True)
 print('---------------', flush=True)
 
 
@@ -313,7 +361,13 @@ with open(os.path.join(OUT,'meta.json'),'w') as _mf:
                'cupCenterX':cupCenterX,'cupBottom':cupBottom,'cupCenterZ':cupCenterZ,
                'cup_outer_r':CUP_OUTER_R,'cup_inner_r':CUP_INNER_R,
                'cup_height':CUP_HEIGHT,'cup_bottom_t':CUP_BOTTOM_T,
-               'water_level':WATER_LEVEL,'gs':[gs.x,gs.y,gs.z]}, _mf, indent=2)
+               'water_level':WATER_LEVEL,'gs':[gs.x,gs.y,gs.z],
+               'settle_cache_used':bool(_settle_skip),
+               'settle_cache':_SETTLE_CACHE if _settle_skip else None,
+               'settle_note':_settle_note,
+               'cup_placement_own':{'cupCenterX':_ownCenterX,'cupBottom':_ownBottom,
+                                    'cupCenterZ':_ownCenterZ},
+               'cup_placement_shift_mm':_shift*H*1000}, _mf, indent=2)
 print('meta.json 저장:', os.path.join(OUT,'meta.json'), flush=True)
 
 
@@ -386,15 +440,13 @@ def set_cup(tt):
     obsVel.setConst(vec3(px1-px0, py1-py0, pz1-pz0))
     obsVel.setBound(value=vec3(0.), boundaryWidth=2)
 
-_SETTLE_CACHE = os.path.expanduser(
-    os.path.dirname(OUT_DIR) + '/settle_cache/w%d_g%d.uni' % (int(WATER_LEVEL*1000), int(gs.x)))
-_settle_skip = os.path.exists(_SETTLE_CACHE)
+# 캐시 사용 여부와 컵 배치는 앞(CONFIG)에서 이미 정해졌다.
 if _settle_skip:
     pp.load(_SETTLE_CACHE)
     pVel.load(_SETTLE_CACHE.replace('.uni', '_vel.uni'))
     print('[settle] 캐시 로드: %s' % _SETTLE_CACHE, flush=True)
 else:
-    print('[settle] 캐시 없음 -> 정착 계산 후 저장', flush=True)
+    print('[settle] %s' % _settle_note, flush=True)
 
 for t in range(TOTAL):
     # 정착 구간: 캐시가 있으면 계산을 건너뛰고 시간만 진행
@@ -581,11 +633,18 @@ for t in range(TOTAL):
     # 8. Reconstruct and save the liquid mesh
     # --------------------------------------------------------
 
-    if (not _settle_skip) and t == int(SETTLE_T) - 1:
+    if (not _settle_skip) and _settle_write and t == int(SETTLE_T) - 1:
+        # 캐시에는 반드시 이 정착을 계산한 컵 배치를 같이 남긴다.
+        # 이게 없으면 배치가 다른 궤적이 읽었을 때 물이 컵 밖에서 시작한다.
         os.makedirs(os.path.dirname(_SETTLE_CACHE), exist_ok=True)
         pp.save(_SETTLE_CACHE)
         pVel.save(_SETTLE_CACHE.replace('.uni', '_vel.uni'))
-        print('[settle] 캐시 저장: %s' % _SETTLE_CACHE, flush=True)
+        with open(_SETTLE_META, 'w') as _sf:
+            _json.dump({'cupCenterX':cupCenterX, 'cupBottom':cupBottom, 'cupCenterZ':cupCenterZ,
+                        'water_level':WATER_LEVEL, 'gs':[gs.x,gs.y,gs.z], 'H':H,
+                        'traj_file':TRAJ_FILE}, _sf, indent=2)
+        print('[settle] 캐시 저장: %s (배치 x=%.1f y=%.1f z=%.1f)'
+              % (_SETTLE_CACHE, cupCenterX, cupBottom, cupCenterZ), flush=True)
     if t < SETTLE_T or (round((t-SETTLE_T)/TFRAME)*TFRAME+SETTLE_T-t)**2 > 0.30:
         s.step(); continue
     gridParticleIndex(

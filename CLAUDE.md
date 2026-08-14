@@ -40,6 +40,12 @@ Genesis(궤적) → mantaflow IDP-APIC(유체 시뮬) → Blender 4.5.3(렌더 +
 - 카메라: Camera_e / _n / _w / _s (45도 부감, 컵에서 1.35m). CAM_NAME으로 지정
 - 마커: cup_marker_x (컵 로컬 +x에 붙은 띠). 렌더 스크립트가 매 프레임 위치를 갱신하되
   `SHOW_MARKER=1` 일 때만 렌더에 나온다 (기본 0 = 숨김)
+- 학습용 렌더: `WATER_ONLY=1` — 컵·마커 숨김, 월드/바닥 흰색, view_transform=Standard,
+  컵 밖 물 제거(`WATER_CLIP_R_MM` 기본 31 = 안반경 28 + 재구성 여유 3).
+  테두리 위 물은 남긴다(`WATER_CLIP_RIM=1` 이면 컵 높이에서 자름)
+- 정착 캐시: `settle_cache/wNN_g152_v2.uni` + 같은 이름 `.json`(컵 배치 기록).
+  캐시를 쓰면 캐시의 컵 배치를 채택하고, 그 배치로 궤적이 도메인을 벗어나면
+  캐시를 버리고 자기 정착을 계산한다. v1 캐시(위치 정보 없음)는 쓰지 않는다
 
 ## 환경
 - 로컬: airlab-desktop, Ubuntu 22.04, RTX 3070
@@ -51,6 +57,10 @@ Genesis(궤적) → mantaflow IDP-APIC(유체 시뮬) → Blender 4.5.3(렌더 +
 1. `flags.initDomain(phiWalls=phiObs)`는 넘겨받은 phiObs를 초기화한다. 컵 levelset을
    먼저 만들고 호출하면 컵이 사라지므로 initDomain 이후에 컵을 join해야 한다.
 2. IDP의 push-out은 정지 장애물 전제라 이동 컵에서 물이 샌다. `clampToCupAxis`가 보완.
+2-1. 정착 캐시는 입자를 격자 절대 좌표로 저장하는데 컵 배치(cupCenterX/cupBottom/
+   cupCenterZ)는 궤적의 이동 범위에서 계산돼 궤적마다 다르다. 배치를 맞추지 않고
+   캐시를 읽으면 물이 컵 밖에서 시작해 라벨 유효 셀이 0이 된다. v2 캐시는 배치를
+   같이 저장해 이 문제를 막는다.
 3. 표면 재구성이 입자보다 바깥에 표면을 만든다. 물이 격하게 튄 뒤에는 성긴 입자층까지
    감싸서 수면이 실제보다 2~5mm 높게 기록된다. 잔잔할 때는 0.3mm 수준.
 4. DT_REAL과 궤적 생성 설정이 어긋나면 에러 없이 시뮬 속도만 달라진다.
