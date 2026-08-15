@@ -15,6 +15,9 @@ Genesis(궤적) → mantaflow IDP-APIC(유체 시뮬) → Blender 4.5.3(렌더 +
 - `scripts/height_field_tool.py` — 높이 필드 추출 도구 (extract_gen이 exec로 읽음)
 - `scripts/extract_gen.py` — 라벨 생성 진입점 (CAM_NAME / OUT_LABELS / F_START / F_END)
 - `scripts/check_labels.py` — 4방향 라벨 검증 (유효셀·평균·회전 관계)
+- `scripts/debug_frame.py` — 문제 프레임의 물 메시 위치 진단 (Blender 없이)
+- `scripts/overlay_label.py` — 렌더 이미지 위에 라벨 격자 겹쳐 보기
+- `scripts/make_sheet.py` — 4방향 이미지+높이필드 비교판
 - `scripts/render_gen.py` — Blender 렌더
 - `scripts/gen_traj_batch.py` — 궤적 일괄 생성기
 - `scripts/make_traj.py` — Genesis npy → 궤적 txt 변환
@@ -30,6 +33,11 @@ Genesis(궤적) → mantaflow IDP-APIC(유체 시뮬) → Blender 4.5.3(렌더 +
 - 궤적 프레임 간격 8ms, 시뮬 프레임당 TFRAME=5.09, 정착 SETTLE_T=200
 - 표면 재구성: improvedParticleLevelset, radiusFactor 2.2, smoothen 3
 - 높이 필드: 32×32 float, 단위 m, 컵 안바닥 기준, 샘플 반경 27mm, 유효 616셀, 나머지 NaN
+- 높이 상한 없음. 테두리(94mm) 위로 솟거나 넘치는 물도 값으로 담는다. 공중의 물보라는
+  높이가 아니라 두께로 거른다: 교점을 (윗면, 아랫면) 쌍으로 보고 `MIN_THICK_MM`(기본 5)
+  보다 얇으면 건너뛴다. 안전 상한은 `MAX_H_MM`(기본 300 = 컵 높이 3배)
+- NaN의 의미: 물이 없거나(광선이 아무것도 못 맞음, 컵 바닥 노출) 얇은 물보라뿐인 자리.
+  "물이 높아서 잘린" NaN은 더 이상 없다
 - 라벨 격자: 평면은 컵 축에 수직(컵 로컬 xy), 광선은 컵 축 반대 방향, 높이는 컵 축 방향
   거리. 이 평면 안에서 격자를 몇 도 돌릴지만 카메라가 정한다. j축 = 카메라 광축의 방위
   성분을 컵 평면에 투영한 벡터, i축 = j축과 수직(i×j = 컵 축). 광축을 부감각까지 통째로
@@ -63,6 +71,8 @@ Genesis(궤적) → mantaflow IDP-APIC(유체 시뮬) → Blender 4.5.3(렌더 +
    같이 저장해 이 문제를 막는다.
 3. 표면 재구성이 입자보다 바깥에 표면을 만든다. 물이 격하게 튄 뒤에는 성긴 입자층까지
    감싸서 수면이 실제보다 2~5mm 높게 기록된다. 잔잔할 때는 0.3mm 수준.
+   같은 이유로 입자 하나짜리 물방울도 지름 10mm 안팎으로 부풀어, 두께 판정(5mm)으로는
+   안 걸러진다. 대신 렌더에도 같은 물방울이 보이므로 이미지-라벨은 어긋나지 않는다.
 4. DT_REAL과 궤적 생성 설정이 어긋나면 에러 없이 시뮬 속도만 달라진다.
 5. Blender 렌더에서 좌표를 색으로 저장할 때는 view_transform을 'Standard'로 해야 한다.
 

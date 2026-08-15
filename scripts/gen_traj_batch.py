@@ -15,6 +15,22 @@ TEMPLATE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'traj_curveG
 WATER_LEVELS = [0.055, 0.065, 0.075, 0.085]
 KINDS = ['static', 'curve', 'stop', 'shake', 'zigzag', 'tilt']
 
+# ---- 가속도 예산 ----------------------------------------------------------
+# 이동 구간은 200스텝 = 100프레임 = 0.80초로 고정이다(step은 조각 길이만 바꾸고
+# 총 시간은 안 바뀐다). 따라서 가속도는 진폭과 주기 수로만 조절한다.
+#
+#   흔들림 가속도 a ~= K * 진폭 * 주기수^2      (기존 25개 궤적에서 맞춘 계수)
+#     zigzag K=27, shake K=30, curve K=55(사인 한 번)
+#
+# 물을 넘치게 하는 건 가속도 자체보다 공진이다. 안반경 28mm 원통의 1차 슬로싱은
+# 4.04Hz = 0.8초에 3.23주기(수위 55~85mm 모두 같다). 그래서 주기 수를 공진 근처로
+# 두고 진폭을 가속도 예산에서 역산한다. 같은 출렁임을 훨씬 낮은 가속도로 얻는다.
+ACC_MAX = float(os.environ.get('ACC_MAX', 5.0))    # 목표 최대 가속도 (m/s^2)
+ACC_MIN = float(os.environ.get('ACC_MIN', 2.0))
+K_ZIG, K_SHAKE, K_CURVE = 27.0, 30.0, 55.0
+T_MOVE = 0.80                                       # 이동 구간 길이(초)
+RESONANCE = 3.23                                    # 0.8초 동안의 슬로싱 주기 수
+
 MARK = '    frame["save_on"] = True'
 END  = '    settle(20)'   # 이동 구간 끝. 이후(내려놓기)는 저장 안 함
 
@@ -33,27 +49,37 @@ def params(idx):
     }
     _target = 300 if idx <= 11 else 400   # 1~11: 150프레임, 12~25: 200프레임
     p['seg'] = max(12, int(round(_target / float(p['step']))))
+    # 이동 자체(거리 dist를 u^2로 가속)에서 나오는 바닥 가속도
+    a_base = 2.0 * p['dist'] / (T_MOVE ** 2)
+    a_t = r.uniform(ACC_MIN, ACC_MAX)                  # 이 궤적의 목표 최대 가속도
     if k == 'curve':
-        p['amp'] = round(r.uniform(0.05, 0.18), 4)     # 곡선 세기
-        p['amp0'] = round(r.uniform(0.02, 0.08), 4)
+        p['amp'] = round(min(0.18, a_t / K_CURVE), 4)  # 곡선 세기 (가속도 예산에서 역산)
+        p['amp0'] = round(r.uniform(0.02, 0.08), 4)    # 곡률 없는 초기 옆이동
+        a_drive = K_CURVE * p['amp']
     elif k == 'stop':
         p['accel'] = r.choice([2, 3])                  # u^2 / u^3
+        a_drive = a_base * (1.0 if p['accel'] == 2 else 2.2)
     elif k == 'shake':
-        p['sh_amp'] = round(r.uniform(0.015, 0.055), 4)  # 진폭(m)
-        p['sh_cyc'] = round(r.uniform(1.0, 4.5), 2)      # 주기 수
-        p['sh_axis'] = r.choice(['y', 'x'])              # y=좌우, x=앞뒤
+        p['sh_cyc'] = round(r.uniform(2.4, 3.6), 2)    # 공진(3.23) 근처
+        p['sh_amp'] = round(min(0.05, a_t / (K_SHAKE * p['sh_cyc'] ** 2)), 4)
+        p['sh_axis'] = r.choice(['y', 'x'])            # y=좌우, x=앞뒤
+        a_drive = K_SHAKE * p['sh_amp'] * p['sh_cyc'] ** 2
     elif k == 'static':
         p['nudge'] = round(r.uniform(0.0, 0.02), 4)      # 아주 작은 흔들림(m)
+        a_drive = 0.0
     elif k == 'zigzag':
-        p['zz_amp'] = round(r.uniform(0.04, 0.12), 4)
-        p['zz_cyc'] = round(r.uniform(1.0, 3.0), 2)
+        p['zz_cyc'] = round(r.uniform(2.2, 3.4), 2)    # 공진 근처
+        p['zz_amp'] = round(min(0.09, a_t / (K_ZIG * p['zz_cyc'] ** 2)), 4)
+        a_drive = K_ZIG * p['zz_amp'] * p['zz_cyc'] ** 2
     elif k == 'tilt':
-        p['tilt_deg'] = round(r.uniform(6.0, 14.0), 2)   # 최종 기울기(도)
         p['tilt_cyc'] = round(r.choice([0.0, 1.0, 2.0]), 1)  # 0=단조증가, >0=흔들림
-    elif k == 'vert':
-        p['vz_amp'] = round(r.uniform(0.03, 0.10), 4)    # 상하 진폭(m)
-        p['vz_cyc'] = round(r.uniform(1.0, 3.0), 2)      # 상하 주기 수
-        p['tilt_deg'] = round(r.uniform(0.0, 8.0), 2)    # 기울기 동반
+        # 기울임도 컵 중심을 흔들어 가속도를 만든다: a ~= 0.07 * deg * cyc^2
+        _cap = 14.0 if p['tilt_cyc'] <= 1.0 else (ACC_MAX - a_base) / (0.07 * 4.0)
+        p['tilt_deg'] = round(min(r.uniform(6.0, 14.0), _cap), 2)   # 최종 기울기(도)
+        a_drive = 0.07 * p['tilt_deg'] * max(p['tilt_cyc'], 0.5) ** 2
+    else:
+        a_drive = 0.0
+    p['acc_pred'] = round((a_base ** 2 + a_drive ** 2) ** 0.5, 2)   # 예상 최대 가속도
     return p
 
 
@@ -147,7 +173,7 @@ if __name__ == '__main__':
         os.makedirs(ROOT, exist_ok=True)
         with open(os.path.join(ROOT, 'params.csv'), 'w', newline='') as f:
             w = csv.DictWriter(f, fieldnames=[
-                'idx','kind','water','dist','step','seg',
+                'idx','kind','water','dist','step','seg','acc_pred',
                 'amp','amp0','accel','sh_amp','sh_cyc','zz_amp','zz_cyc',
                 'tilt_deg','tilt_cyc','sh_axis','nudge'])
             w.writeheader()

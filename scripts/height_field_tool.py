@@ -8,8 +8,16 @@ GRID_N      = 32
 CUP_INNER_R = 0.030
 SAMPLE_R = 0.027   # 벽 인접 3mm 제외 (광선이 옆면 맞는 구간)
 CUP_BASE_Z  = 0.005
-RAY_START_Z = 0.30
-RIM_MAX     = 0.104   # 컵 테두리(94mm) + 여유 4mm. 이보다 높은 교점은 물방울로 간주
+RAY_START_Z = 0.45   # 도메인(컵 바닥 위 ~348mm)보다 높은 곳에서 쏜다
+
+# 공중의 물보라를 수면으로 잘못 잡지 않게 거르는 기준.
+# 예전에는 "컵 테두리보다 높으면 물방울"(RIM_MAX)로 잘랐는데, 그러면 테두리 위로
+# 솟거나 넘치는 물이 통째로 NaN이 돼 렌더 이미지와 라벨이 어긋난다. 물리적 기준은
+# 높이가 아니라 두께다: 광선이 만나는 교점을 위에서부터 (윗면, 아랫면) 쌍으로 보고,
+# 그 층이 MIN_THICK보다 얇으면 물보라로 보고 건너뛴다.
+MIN_THICK   = float(os.environ.get("MIN_THICK_MM", 5.0))/1000.0
+MAX_H       = float(os.environ.get("MAX_H_MM", 300.0))/1000.0   # 컵 높이의 3배
+MAX_PAIRS   = int(os.environ.get("MAX_PAIRS", 12))              # 훑어볼 층 수
 
 # ===== 격자 좌표계 =====
 # 기본(camera / cup / view): 격자 평면은 컵 축에 수직인 평면(컵 로컬 xy), 광선은 컵 축
@@ -38,6 +46,7 @@ for _k, _v, _ok in (("LABEL_FRAME", LABEL_FRAME, ("camera", "cup")),
 # ================================================================
 
 _xs = np.linspace(-CUP_INNER_R, CUP_INNER_R, GRID_N)
+EPS = 1e-5          # 같은 면을 다시 맞지 않게 교점에서 밀어내는 양(m)
 
 
 def _find_camera():
@@ -151,20 +160,28 @@ def extract_height_field(water_object, cup_pose):
         for b, dj in enumerate(_xs):
             if di*di + dj*dj > SAMPLE_R**2:
                 continue
-            o_local = mw_inv @ (base + e_i*di + e_j*dj + up*RAY_START_Z)
-            # 공중의 물방울을 건너뛰고 컵 안 수면을 찾는다.
-            # 광선을 위에서 아래로 쏘며 교점을 차례로 받아, RIM_MAX 아래 첫 교점을 채택.
-            o = o_local.copy()
+            o = mw_inv @ (base + e_i*di + e_j*dj + up*RAY_START_Z)
+            # 위에서 아래로 쏘며 (윗면, 아랫면) 쌍을 차례로 받는다.
+            # 충분히 두꺼운 첫 층의 윗면이 수면이다. 얇은 층은 물보라로 보고 지나간다.
             h = None
-            for _ in range(8):
+            for _ in range(MAX_PAIRS):
                 hit, loc, _, _ = w_eval.ray_cast(o, d_local)
                 if not hit:
-                    break
+                    break                      # 이 아래로는 물이 없다 -> NaN
                 rel = (mw @ loc) - base
-                if rel.dot(cup_up) <= RIM_MAX:
-                    h = rel.dot(up) if rel.dot(cup_up) >= 0 else None
+                h_cup = rel.dot(cup_up)        # 컵 축 기준 높이 (판정용)
+                if h_cup < 0:
+                    break                      # 안바닥보다 아래 -> 물 없음
+                below = loc + d_local * EPS
+                hit2, loc2, _, _ = w_eval.ray_cast(below, d_local)
+                # 아랫면이 안 잡히면(수치 오차/열린 메시) 본체로 본다
+                thick = ((mw @ loc) - (mw @ loc2)).dot(up) if hit2 else MAX_H
+                if h_cup <= MAX_H and thick >= MIN_THICK:
+                    h = rel.dot(up)            # 라벨 좌표계 기준 높이
                     break
-                o = loc + d_local * 1e-4      # 그 교점 바로 아래에서 다시 발사
+                if not hit2:
+                    break
+                o = loc2 + d_local * EPS       # 이 층 아래에서 다시 발사
             hf[a, b] = h if h is not None else np.nan
     return hf
 
