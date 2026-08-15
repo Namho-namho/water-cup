@@ -14,7 +14,16 @@ if CAM_NAME:
         raise SystemExit(f"카메라 없음: {CAM_NAME}")
     bpy.context.scene.camera = bpy.data.objects[CAM_NAME]
     print(f"카메라: {CAM_NAME}", flush=True)
-exec(open(os.path.expanduser("~/water_cup/height_field_tool.py")).read())
+# 측정기는 이 스크립트와 같은 폴더에 있는 것을 쓴다. 세라프처럼 $HOME이 계산 노드에
+# 공유되지 않는 환경에서 ~/water_cup 을 못 찾는 문제를 피한다. HFT_PATH로 덮어쓸 수 있다.
+_HFT = os.environ.get("HFT_PATH", "")
+if not _HFT:
+    _here = os.path.dirname(os.path.abspath(__file__)) if "__file__" in globals() else ""
+    _HFT = os.path.join(_here, "height_field_tool.py")
+    if not os.path.exists(_HFT):
+        _HFT = os.path.expanduser("~/water_cup/height_field_tool.py")
+print(f"측정기: {_HFT}", flush=True)
+exec(open(_HFT).read())
 CUP_BASE_Z = M['cup_bottom_t']
 H=M['H']; S=float(M['gs'][2])
 GX0,GY0,GZ0 = M['cupCenterX'], M['cupBottom'], M['cupCenterZ']

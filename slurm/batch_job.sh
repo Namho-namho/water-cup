@@ -34,6 +34,9 @@ for C in e n w s; do
   MESH_DIR=$W/sim_$I CAM_NAME=Camera_$C OUT_LABELS=$W/out/$I/height_$C \
     $BLENDER -b $W/water_scene_final.blend \
     --python $W/extract_gen.py || exit 1
+  # Blender는 파이썬이 예외로 죽어도 0을 돌려준다. 결과가 실제로 나왔는지 본다.
+  N=$(ls $W/out/$I/height_$C/height_*.npy 2>/dev/null | wc -l)
+  [ "$N" -gt 0 ] || { echo "[fail] 라벨 0개: $I $C — 메시를 남겨두고 중단"; exit 1; }
 
   # 렌더 -> out/$I/${C}_XXXX.png (학습용: 컵 숨김 + 흰 배경 + 컵 밖 물 제거)
   MESH_DIR=$W/sim_$I CAM_NAME=Camera_$C IMG_MODE=1 WATER_ONLY=1 OUT_VIDEO=$W/out/$I/${C}_ \
