@@ -46,9 +46,11 @@
 수위를 읽습니다. 궤적 파일은 Genesis에서 Franka가 실제로 컵을 쥐고 움직인 결과이며,
 각 파일은 약 100프레임(0.8초)입니다.
 
-> `traj/batch/` 의 `traj_0021.txt`, `traj_0022.txt` 는 지금 params.csv 로 새로 생성한
-> 것입니다. 나머지 `traj_00NN.txt` 는 예전 파라미터로 만든 것이라 params.csv 와
-> 맞지 않습니다. `sbatch --array=1-1000 slurm/traj_job.sh` 로 다시 만드세요.
+`traj/batch/` 의 25개(`traj_0001.txt` ~ `traj_0025.txt`)는 모두 지금 params.csv 로
+생성한 것입니다. 26번부터는 `sbatch --array=26-1000 slurm/traj_job.sh` 로 만드세요.
+
+측정값(25개): 최대 속도 0.03~0.86 m/s, 최대 가속도 0.83~4.68 m/s²(중앙 2.78),
+자세 변화 최대 12.3도. `acc_pred` 와 실측의 차이는 절대평균 0.34, 최대 +0.84입니다.
 
 ### 가속도 설계
 

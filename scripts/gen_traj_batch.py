@@ -19,15 +19,17 @@ KINDS = ['static', 'curve', 'stop', 'shake', 'zigzag', 'tilt']
 # 이동 구간은 200스텝 = 100프레임 = 0.80초로 고정이다(step은 조각 길이만 바꾸고
 # 총 시간은 안 바뀐다). 따라서 가속도는 진폭과 주기 수로만 조절한다.
 #
-#   흔들림 가속도 a ~= K * 진폭 * 주기수^2      (기존 25개 궤적에서 맞춘 계수)
-#     zigzag K=27, shake K=30, curve K=55(사인 한 번)
+#   흔들림 가속도 a ~= K * 진폭 * 주기수^2      (실제 생성한 궤적에서 맞춘 계수)
+#     zigzag K=27, shake K=30 (실측 23~29. 예산을 조금 보수적으로 잡는 쪽)
+#     curve  K=80             (실측 57~78. 최댓값 쪽에 맞춰야 5를 안 넘는다)
+#     tilt   a ~= deg * (0.061*주기수^2 + 0.108)   (실측 0.155~0.367 /deg)
 #
 # 물을 넘치게 하는 건 가속도 자체보다 공진이다. 안반경 28mm 원통의 1차 슬로싱은
 # 4.04Hz = 0.8초에 3.23주기(수위 55~85mm 모두 같다). 그래서 주기 수를 공진 근처로
 # 두고 진폭을 가속도 예산에서 역산한다. 같은 출렁임을 훨씬 낮은 가속도로 얻는다.
 ACC_MAX = float(os.environ.get('ACC_MAX', 5.0))    # 목표 최대 가속도 (m/s^2)
 ACC_MIN = float(os.environ.get('ACC_MIN', 2.0))
-K_ZIG, K_SHAKE, K_CURVE = 27.0, 30.0, 55.0
+K_ZIG, K_SHAKE, K_CURVE = 27.0, 30.0, 80.0
 T_MOVE = 0.80                                       # 이동 구간 길이(초)
 RESONANCE = 3.23                                    # 0.8초 동안의 슬로싱 주기 수
 
@@ -73,10 +75,11 @@ def params(idx):
         a_drive = K_ZIG * p['zz_amp'] * p['zz_cyc'] ** 2
     elif k == 'tilt':
         p['tilt_cyc'] = round(r.choice([0.0, 1.0, 2.0]), 1)  # 0=단조증가, >0=흔들림
-        # 기울임도 컵 중심을 흔들어 가속도를 만든다: a ~= 0.07 * deg * cyc^2
-        _cap = 14.0 if p['tilt_cyc'] <= 1.0 else (ACC_MAX - a_base) / (0.07 * 4.0)
+        # 기울임도 컵 중심을 흔들어 가속도를 만든다
+        _kt = 0.061 * max(p['tilt_cyc'], 0.5) ** 2 + 0.108
+        _cap = (ACC_MAX - a_base) / _kt
         p['tilt_deg'] = round(min(r.uniform(6.0, 14.0), _cap), 2)   # 최종 기울기(도)
-        a_drive = 0.07 * p['tilt_deg'] * max(p['tilt_cyc'], 0.5) ** 2
+        a_drive = _kt * p['tilt_deg']
     else:
         a_drive = 0.0
     p['acc_pred'] = round((a_base ** 2 + a_drive ** 2) ** 0.5, 2)   # 예상 최대 가속도
