@@ -187,10 +187,18 @@ if WATER_ONLY and CLIP_MODE == 'cylinder':
     print(f"WATER_ONLY: 원통 불리언 절단 r={CLIP_R*1000:.0f}mm", flush=True)
 
 if WATER_ONLY:
-    # 컵과 마커를 숨긴다
-    for _n in ('cup', 'cup_marker_x'):
-        _o = bpy.data.objects.get(_n)
-        if _o is not None: _o.hide_render = True
+    # 물과 바닥판 말고 모든 메시를 숨긴다.
+    # 컵·마커만 이름으로 숨겼더니 hf_grid(높이필드 격자 표시용, z=0.486에 떠 있음)가
+    # 남아 카메라와 컵 사이에 끼어 물 윗부분을 가렸다. 흰 배경과 같은 색이라
+    # 물이 잘린 것처럼 보인다. 앞으로 다른 보조 오브젝트가 늘어도 안전하도록
+    # 남길 것만 지정한다.
+    _KEEP = {'water', 'Plane'}
+    _hidden = []
+    for _o in bpy.data.objects:
+        if _o.type == 'MESH' and _o.name not in _KEEP and not _o.hide_render:
+            _o.hide_render = True
+            _hidden.append(_o.name)
+    print(f"WATER_ONLY: 숨긴 메시 {_hidden}", flush=True)
     # 월드 배경을 흰색으로
     if sc.world is None:
         sc.world = bpy.data.worlds.new('white_world')
