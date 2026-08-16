@@ -93,12 +93,17 @@ if bad:
 
 import csv as _csv, datetime as _dtm
 _dt=_time.time()-_t0
-_log=os.path.expanduser('~/water_cup/timing_log.csv')
-_new=not os.path.exists(_log)
-with open(_log,'a',newline='') as _f:
-    _w=_csv.writer(_f)
-    if _new: _w.writerow(['datetime','scenario','stage','seconds','detail'])
-    _w.writerow([_dtm.datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                 os.path.basename(MESH_DIR).replace('idp_',''),'labels',f'{_dt:.0f}',
-                 f'frames={NT} frame={LABEL_FRAME}/{GRID_PLANE} cam={CAM_NAME or "-"}'])
+# 기록 실패가 라벨 작업을 망치면 안 된다. $HOME이 계산 노드에 공유되지 않는 환경이
+# 있어서(세라프) 기본 경로도 메시 폴더 옆으로 잡는다. TIMING_LOG로 바꿀 수 있다.
+_log=os.environ.get('TIMING_LOG') or os.path.join(os.path.dirname(MESH_DIR), 'timing_log.csv')
+try:
+    _new=not os.path.exists(_log)
+    with open(_log,'a',newline='') as _f:
+        _w=_csv.writer(_f)
+        if _new: _w.writerow(['datetime','scenario','stage','seconds','detail'])
+        _w.writerow([_dtm.datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                     os.path.basename(MESH_DIR).replace('idp_',''),'labels',f'{_dt:.0f}',
+                     f'frames={NT} frame={LABEL_FRAME}/{GRID_PLANE} cam={CAM_NAME or "-"}'])
+except OSError as _e:
+    print(f'[warn] timing 기록 실패: {_e}', flush=True)
 print(f'[timing] labels: {_dt/60:.1f}분', flush=True)
