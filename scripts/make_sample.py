@@ -11,7 +11,6 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
 CAMS = ('e', 'n', 'w', 's')
-PREFIX = os.environ.get('LABEL_PREFIX', 'heightA_cup')
 RAMP = np.array([[49, 54, 149], [69, 150, 220], [240, 240, 180],
                  [245, 150, 60], [165, 0, 38]], dtype=float)   # 낮음 -> 높음
 NAN_RGB = (205, 205, 205)
@@ -88,7 +87,7 @@ def main():
     os.makedirs(f'{a.out}/labels', exist_ok=True)
 
     meta = None
-    mp = f'{a.root}/{PREFIX}_e/label_meta.json'
+    mp = f'{a.root}/height_e/label_meta.json'
     if os.path.exists(mp):
         meta = json.load(open(mp))
 
@@ -116,7 +115,7 @@ def main():
 
     y = head
     for fr, tag in zip(a.frames, tags):
-        vals = np.concatenate([np.load(f'{a.root}/{PREFIX}_{c}/height_{fr:04d}.npy').ravel()
+        vals = np.concatenate([np.load(f'{a.root}/height_{c}/height_{fr:04d}.npy').ravel()
                                for c in CAMS])
         vals = vals[~np.isnan(vals)]
         vmin, vmax = float(vals.min()), float(vals.max())
@@ -131,7 +130,7 @@ def main():
             sheet.paste(crop_water(img, CELL), (x, yy))
             d.rectangle([x, yy, x + CELL - 1, yy + CELL - 1], outline=(200, 200, 200))
             d.text((x + 6, yy + 5), f'Camera_{c}  입력', fill=(60, 60, 60), font=FS)
-            hf = np.load(f'{a.root}/{PREFIX}_{c}/height_{fr:04d}.npy')
+            hf = np.load(f'{a.root}/height_{c}/height_{fr:04d}.npy')
             sheet.paste(field_img(hf, vmin, vmax, CELL), (x, yy + CELL + 22))
             d.rectangle([x, yy + CELL + 22, x + CELL - 1, yy + 2 * CELL + 21], outline=(200, 200, 200))
             d.text((x + 6, yy + CELL + 3), f'↓ 같은 프레임의 정답 — 높이 필드 32x32',

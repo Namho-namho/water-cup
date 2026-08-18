@@ -441,6 +441,10 @@ def set_cup(tt):
     obsVel.setBound(value=vec3(0.), boundaryWidth=2)
 
 # 캐시 사용 여부와 컵 배치는 앞(CONFIG)에서 이미 정해졌다.
+if _settle_skip and not (os.path.exists(_SETTLE_CACHE) and os.path.exists(_SETTLE_META)):
+    # 여기까지 오는 사이에 캐시가 사라졌다면(다른 잡이 정리 중) 자기 정착으로 되돌린다
+    print('[settle] 캐시가 사라졌다 -> 자기 정착 계산', flush=True)
+    _settle_skip = False; _settle_write = False
 if _settle_skip:
     pp.load(_SETTLE_CACHE)
     pVel.load(_SETTLE_CACHE.replace('.uni', '_vel.uni'))
@@ -636,13 +640,21 @@ for t in range(TOTAL):
     if (not _settle_skip) and _settle_write and t == int(SETTLE_T) - 1:
         # 캐시에는 반드시 이 정착을 계산한 컵 배치를 같이 남긴다.
         # 이게 없으면 배치가 다른 궤적이 읽었을 때 물이 컵 밖에서 시작한다.
+        # 여러 잡이 동시에 같은 수위의 캐시를 만들 수 있다. 임시 이름으로 쓴 뒤
+        # 이름을 바꿔 넣는다(같은 파일시스템에서 원자적). 판정 기준인 .json 을 마지막에
+        # 넣어서, 읽는 쪽이 .uni 와 .json 을 둘 다 본 시점에는 내용이 완성돼 있게 한다.
         os.makedirs(os.path.dirname(_SETTLE_CACHE), exist_ok=True)
-        pp.save(_SETTLE_CACHE)
-        pVel.save(_SETTLE_CACHE.replace('.uni', '_vel.uni'))
-        with open(_SETTLE_META, 'w') as _sf:
+        _tag = '.tmp%d' % os.getpid()
+        pp.save(_SETTLE_CACHE + _tag)
+        pVel.save(_SETTLE_CACHE.replace('.uni', '_vel.uni') + _tag)
+        with open(_SETTLE_META + _tag, 'w') as _sf:
             _json.dump({'cupCenterX':cupCenterX, 'cupBottom':cupBottom, 'cupCenterZ':cupCenterZ,
                         'water_level':WATER_LEVEL, 'gs':[gs.x,gs.y,gs.z], 'H':H,
                         'traj_file':TRAJ_FILE}, _sf, indent=2)
+        os.replace(_SETTLE_CACHE + _tag, _SETTLE_CACHE)
+        os.replace(_SETTLE_CACHE.replace('.uni', '_vel.uni') + _tag,
+                   _SETTLE_CACHE.replace('.uni', '_vel.uni'))
+        os.replace(_SETTLE_META + _tag, _SETTLE_META)
         print('[settle] 캐시 저장: %s (배치 x=%.1f y=%.1f z=%.1f)'
               % (_SETTLE_CACHE, cupCenterX, cupBottom, cupCenterZ), flush=True)
     if t < SETTLE_T or (round((t-SETTLE_T)/TFRAME)*TFRAME+SETTLE_T-t)**2 > 0.30:

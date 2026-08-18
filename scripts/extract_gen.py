@@ -42,7 +42,7 @@ def rb(p):
     tris=np.frombuffer(data,dtype=np.int32,count=nt*3,offset=off).reshape(-1,3)
     return verts.astype(np.float64), tris
 n=0
-azim={}; gang={}; bad=[]; edge=[]
+azim={}; gang={}; bad=[]
 # 이보다 유효 셀이 적은 프레임은 못 쓸 라벨로 보고 NaN 처리한다 (전체 616셀 중)
 MIN_VALID=int(os.environ.get("MIN_VALID", 62))
 _S=int(os.environ.get("F_START",0)); _E=int(os.environ.get("F_END",NT-1))
@@ -68,10 +68,6 @@ for i in range(_S, _E+1):
         print(f"[warn] f{i:04d} 유효 셀 {nv}개 (<{MIN_VALID}) -> NaN 프레임으로 저장", flush=True)
         hf=np.full_like(hf, np.nan)
         bad.append(i); nv=0
-    if nv and (np.any(~np.isnan(hf[0,:])) or np.any(~np.isnan(hf[-1,:]))
-               or np.any(~np.isnan(hf[:,0])) or np.any(~np.isnan(hf[:,-1]))):
-        print(f"[warn] f{i:04d} 물이 격자 테두리에 닿음 - GRID_R_MM을 키워야 한다", flush=True)
-        edge.append(i)
     np.save(f"{OUT_DIR}/height_{i:04d}.npy", hf)
     azim[i]=grid_azimuth_deg(pose); gang[i]=grid_angle_deg(pose)
     n+=1
@@ -81,26 +77,16 @@ for i in range(_S, _E+1):
             print(f"[{i}/{NT}] 유효 {vv.size} 평균 {vv.mean()*1000:.1f}mm 폭 {(vv.max()-vv.min())*1000:.1f}mm", flush=True)
         else:
             print(f"[{i}/{NT}] 유효 0 — 광선이 수면을 못 찾음", flush=True)
-# 어떤 기준으로 뽑은 라벨인지 파일에 남긴다. A/B 를 구분하는 근거가 된다.
-_ver = ('A' if (GRID_PLANE=='cup' and HEIGHT_REF=='cup_bottom')
-        else 'B' if (GRID_PLANE=='world' and HEIGHT_REF=='floor') else '사용자정의')
-json.dump({'label_version':_ver,
-           'basis':('격자=컵축에 수직인 평면, 광선=컵축 방향, 높이=컵 안바닥 기준 축방향 거리'
-                    if _ver=='A' else
-                    '격자=월드 수평면, 광선=월드 -z, 높이=바닥(z=0) 기준 절대 높이'
-                    if _ver=='B' else f'{GRID_PLANE}/{HEIGHT_REF}'),
-           'label_frame':LABEL_FRAME, 'grid_plane':GRID_PLANE, 'height_ref':HEIGHT_REF,
-           'cam_azim':CAM_AZIM,
+json.dump({'label_frame':LABEL_FRAME, 'grid_plane':GRID_PLANE, 'cam_azim':CAM_AZIM,
+           'basis':'격자=컵축에 수직인 평면, 광선=컵축 방향, 높이=컵 안바닥 기준 축방향 거리',
            'camera':CAM_NAME or (bpy.context.scene.camera.name
            if bpy.context.scene.camera else None),
-           'traj_file':M['traj_file'], 'grid_n':GRID_N, 'grid_r':GRID_R,
+           'traj_file':M['traj_file'], 'grid_n':GRID_N, 'grid_r':CUP_INNER_R,
            'sample_r':SAMPLE_R, 'unit':'m',
            'azim_deg':{str(k):v for k,v in sorted(azim.items())},
            'grid_angle_deg':{str(k):v for k,v in sorted(gang.items())}},
           open(f"{OUT_DIR}/label_meta.json",'w'), indent=1)
 print(f"완료 {n}개 -> {OUT_DIR}", flush=True)
-if edge:
-    print(f"[warn] 격자 테두리에 물이 닿은 프레임 {len(edge)}개: {edge[:20]}", flush=True)
 if bad:
     print(f"[warn] 못 쓰는 프레임 {len(bad)}/{n}개: {bad[:20]}{' ...' if len(bad)>20 else ''}", flush=True)
     print("[warn] 첫 프레임부터 비었다면 물이 컵 밖에 있는 시뮬이다. "
@@ -118,7 +104,7 @@ try:
         if _new: _w.writerow(['datetime','scenario','stage','seconds','detail'])
         _w.writerow([_dtm.datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
                      os.path.basename(MESH_DIR).replace('idp_',''),'labels',f'{_dt:.0f}',
-                     f'frames={NT} ver={_ver} {GRID_PLANE}/{HEIGHT_REF} cam={CAM_NAME or "-"}'])
+                     f'frames={NT} {GRID_PLANE} cam={CAM_NAME or "-"}'])
 except OSError as _e:
     print(f'[warn] timing 기록 실패: {_e}', flush=True)
 print(f'[timing] labels: {_dt/60:.1f}분', flush=True)

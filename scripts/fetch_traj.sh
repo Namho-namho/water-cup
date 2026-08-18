@@ -6,9 +6,8 @@
 #
 # 보관 구조:  ~/water_cup/dataset/XXXX/
 #               {e,n,w,s}_0000.png ...            입력 이미지 1280x720
-#               heightA_cup_{e,n,w,s}/           정답 A: 32x32, 컵 평면·컵 안바닥 기준
-#               heightB_world_{e,n,w,s}/         정답 B: 64x64, 월드 수평면·바닥 기준
-#               height*/label_meta.json          라벨 추출 기준
+#               height_{e,n,w,s}/height_0000.npy  정답 32x32 float32
+#               height_{e,n,w,s}/label_meta.json  라벨 추출 설정
 #               info.txt                          궤적 정보
 set -u
 REMOTE=${REMOTE:-shawnbest@moana.khu.ac.kr}
@@ -20,7 +19,7 @@ mkdir -p "$DS"
 for n in "$@"; do
   I=$(printf %04d "$n")
   # 세라프에서 다 끝났는지 먼저 본다 (렌더 4방향 x 프레임 수)
-  R=$(ssh -p $PORT $REMOTE "cd $RROOT/out/$I 2>/dev/null && echo \$(ls *.png 2>/dev/null|wc -l) \$(ls heightA_cup_*/*.npy 2>/dev/null|wc -l)" 2>/dev/null)
+  R=$(ssh -p $PORT $REMOTE "cd $RROOT/out/$I 2>/dev/null && echo \$(ls *.png 2>/dev/null|wc -l) \$(ls height_*/*.npy 2>/dev/null|wc -l)" 2>/dev/null)
   set -- $R
   if [ -z "${1:-}" ] || [ "${1:-0}" -eq 0 ]; then echo "[$I] 세라프에 결과 없음 - 건너뜀"; continue; fi
   if [ "$1" -ne "$2" ]; then echo "[$I] 아직 진행 중 (png $1, npy $2) - 건너뜀"; continue; fi
@@ -41,14 +40,11 @@ p = P[idx]
 t = np.loadtxt(f'{repo}/traj/batch/traj_{idx:04d}.txt')
 v = np.gradient(t[:, :3], 0.008, axis=0); a = np.gradient(v, 0.008, axis=0)
 ang = np.degrees(2 * np.arccos(np.clip(np.abs(t[:, 3]), 0, 1)))
-hs = sorted(f for f in os.listdir(f'{out}/heightA_cup_e') if f.endswith('.npy'))
-H = [np.load(f'{out}/heightA_cup_e/{f}') for f in hs]
+hs = sorted(f for f in os.listdir(f'{out}/height_e') if f.endswith('.npy'))
+H = [np.load(f'{out}/height_e/{f}') for f in hs]
 val = [int((~np.isnan(h)).sum()) for h in H]
 mx = [float(np.nanmax(h)) * 1000 for h in H]
 sp = [float(np.nanmax(h) - np.nanmin(h)) * 1000 for h in H]
-hb = [np.load(f'{out}/heightB_world_e/{f}') for f in hs] if os.path.isdir(f'{out}/heightB_world_e') else []
-vb = [int((~np.isnan(h)).sum()) for h in hb]
-mb = [float(np.nanmax(h)) * 1000 for h in hb]
 open(f'{out}/info.txt', 'w').write(f"""traj_{idx:04d}
 유형        : {p['kind']}
 수위        : {float(p['water'])*1000:.0f} mm
@@ -59,10 +55,8 @@ open(f'{out}/info.txt', 'w').write(f"""traj_{idx:04d}
 수면 통계   : 최고 {max(mx):.1f} mm(컵 안바닥 기준), 기울기 폭 {min(sp):.1f}~{max(sp):.1f} mm
 테두리 초과 : {sum(1 for h in H if np.nanmax(h) > 0.094)} / {len(H)} 프레임 (94mm 기준)
 
-라벨 A (heightA_cup_*)   {H[0].shape[0]}x{H[0].shape[1]}, 컵 축에 수직인 평면, 컵 안바닥 기준 축방향 거리
-                         유효셀 {min(val)}~{max(val)}, 최고 {max(mx):.1f} mm
-라벨 B (heightB_world_*) {hb[0].shape[0] if hb else 0}x{hb[0].shape[1] if hb else 0}, 월드 수평면, 바닥(z=0) 기준 절대 높이
-                         유효셀 {min(vb) if vb else 0}~{max(vb) if vb else 0}, 최고 {max(mb) if mb else 0:.1f} mm
+라벨       : {H[0].shape[0]}x{H[0].shape[1]}, 컵 축에 수직인 평면, 컵 안바닥 기준 축방향 거리
+             유효셀 {min(val)}~{max(val)} / 616, 최고 {max(mx):.1f} mm
 """)
 print(f"[{idx:04d}] info.txt 기록")
 PY

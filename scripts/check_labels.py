@@ -31,15 +31,13 @@ import sys
 
 import numpy as np
 
-# 라벨 폴더 접두어. heightA_cup=버전 A, heightB_world=버전 B, height=예전 데이터
-PREFIX = os.environ.get('LABEL_PREFIX', 'heightA_cup')
 DIRS = ['e', 'n', 'w', 's']
-EXPECT_VALID = 616      # 버전 A 기준. B는 물의 수평 단면이라 프레임마다 다르다
+EXPECT_VALID = 616
 
 
 def load_dir(root, d):
     """height_<d> 폴더에서 {프레임번호: 배열} 과 메타를 읽는다."""
-    p = os.path.join(root, f'{PREFIX}_{d}')
+    p = os.path.join(root, f'height_{d}')
     if not os.path.isdir(p):
         return None, None
     fields = {}
@@ -130,7 +128,7 @@ def main():
         sys.exit("방향끼리 공통인 프레임이 없다")
 
     meta0 = next((m for m in metas.values() if m), None)
-    sample_r = (meta0.get('sample_r') if meta0 else 0.027) or 9.9
+    sample_r = meta0.get('sample_r', 0.027) if meta0 else 0.027
     grid_r = meta0.get('grid_r', 0.030) if meta0 else 0.030
     print(f"폴더 {a.root}")
     print(f"방향 {have}  프레임 {len(frames)}개 ({frames[0]}~{frames[-1]})"
@@ -143,31 +141,22 @@ def main():
         ang = cup_angles(tp)
         print(f"궤적 {tp}  컵 회전 {ang.min():.1f}~{ang.max():.1f}도")
 
-    # 버전 B는 유효 영역이 물의 수평 단면이라 개수가 프레임마다 다르고,
-    # 마스크도 방향끼리 같은 게 아니라 90도 돌아간 관계다.
-    ver = (meta0 or {}).get('label_version', 'A')
-    isB = (ver == 'B')
     ok_valid = ok_mask = ok_mean = True
     means, worst_mean = {}, (0.0, None)
     vcnt = []
     for i in frames:
         m0 = ~np.isnan(fields[have[0]][i])
         vals = {}
-        for k, d in enumerate(have):
+        for d in have:
             hf = fields[d][i]
             v = ~np.isnan(hf)
             vcnt.append(int(v.sum()))
-            if not isB and v.sum() != EXPECT_VALID:
+            if v.sum() != EXPECT_VALID:
                 print(f"  [유효셀] f{i:04d} {d}: {v.sum()}개 (기대 {EXPECT_VALID})")
                 ok_valid = False
-            # A: 마스크가 그대로 같아야 한다 / B: e 기준으로 k*90도 돌린 것과 같아야 한다
-            ref = np.rot90(m0, -k) if isB else m0
-            if not np.array_equal(v, ref):
-                bad = int(np.count_nonzero(v ^ ref))
-                if bad > (0 if not isB else max(4, int(0.01 * v.size))):
-                    print(f"  [마스크] f{i:04d} {d}: 기준과 {bad}셀 다름"
-                          + (" (90도 회전 기준)" if isB else ""))
-                    ok_mask = False
+            if not np.array_equal(v, m0):
+                print(f"  [마스크] f{i:04d} {d}: {have[0]}와 NaN 위치가 다름")
+                ok_mask = False
             vals[d] = float(np.nanmean(hf))
         means[i] = vals
         spread = (max(vals.values()) - min(vals.values())) * 1000.0
@@ -176,13 +165,8 @@ def main():
         if spread > a.tol_mean:
             ok_mean = False
 
-    print(f"\n[버전] {ver} — {(meta0 or {}).get('basis','?')}")
-    if isB:
-        print(f"[1] 유효 셀 수 : {min(vcnt)}~{max(vcnt)} (물의 수평 단면, 프레임마다 다름)")
-        print("    NaN 마스크(90도 회전 기준) : " + ("OK" if ok_mask else "실패"))
-    else:
-        print("[1] 유효 셀 수 616 : " + ("OK" if ok_valid else "실패"))
-        print("    NaN 마스크 일치 : " + ("OK" if ok_mask else "실패"))
+    print("\n[1] 유효 셀 수 616 : " + ("OK" if ok_valid else "실패"))
+    print("    NaN 마스크 일치 : " + ("OK" if ok_mask else "실패"))
     mm = means[worst_mean[1]]
     print(f"[2] 방향별 평균 최대차 {worst_mean[0]:.3f}mm (f{worst_mean[1]:04d}: "
           + " ".join(f"{d}={mm[d]*1000:.2f}" for d in have) + ")"

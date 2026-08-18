@@ -18,8 +18,6 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
 CAMS = ('e', 'n', 'w', 's')
-# 라벨 폴더 접두어. heightA_cup=버전 A, heightB_world=버전 B, height=예전 데이터
-PREFIX = os.environ.get('LABEL_PREFIX', 'heightA_cup')
 CELL = 320          # 한 칸 크기(px)
 PAD = 8
 LABEL_H = 30
@@ -45,7 +43,7 @@ F_BIG, F_SMALL = font(20), font(14)
 
 def load_labels(root, cam):
     out = {}
-    for f in sorted(glob.glob(os.path.join(root, f'{PREFIX}_{cam}', 'height_*.npy'))):
+    for f in sorted(glob.glob(os.path.join(root, f'height_{cam}', 'height_*.npy'))):
         out[int(os.path.basename(f)[7:11])] = f
     return out
 
@@ -122,14 +120,14 @@ def main():
     frames = ([(int(x), '') for x in sys.argv[3:]] if len(sys.argv) > 3
               else pick_frames(root))
 
-    cams = [c for c in CAMS if os.path.isdir(os.path.join(root, f'{PREFIX}_{c}'))]
+    cams = [c for c in CAMS if os.path.isdir(os.path.join(root, f'height_{c}'))]
     # 색 기준은 프레임마다 그 프레임의 최소~최대로 잡는다. 네 방향은 같은 기준을 쓰므로
     # 방향끼리는 그대로 비교되고, 잔잔한 프레임에서도 구조가 보인다.
     rng = {}
     for i, _ in frames:
         vals = []
         for c in cams:
-            a = np.load(os.path.join(root, f'{PREFIX}_{c}', f'height_{i:04d}.npy'))
+            a = np.load(os.path.join(root, f'height_{c}', f'height_{i:04d}.npy'))
             vals.append(a[~np.isnan(a)])
         vals = np.concatenate([v for v in vals if v.size])
         rng[i] = (float(vals.min()), float(vals.max()))
@@ -154,7 +152,7 @@ def main():
             if os.path.exists(img):
                 sheet.paste(crop_water(img), (x, y))
             d.text((x + 4, y + 4), f'Camera_{c}', fill=(90, 90, 90), font=F_SMALL)
-            hf = os.path.join(root, f'{PREFIX}_{c}', f'height_{i:04d}.npy')
+            hf = os.path.join(root, f'height_{c}', f'height_{i:04d}.npy')
             if os.path.exists(hf):
                 sheet.paste(field_image(hf, vmin, vmax), (x, y + CELL))
                 a = np.load(hf)
