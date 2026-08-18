@@ -4,11 +4,25 @@ import numpy as np
 from mathutils import Vector, Quaternion
 
 # ===== 측정기 설정 (측정 규격: SPH/FLIP 공통으로 이 값 사용) =====
-GRID_N      = 32
-CUP_INNER_R = 0.030
-SAMPLE_R = 0.027   # 벽 인접 3mm 제외 (광선이 옆면 맞는 구간)
+# ===== 라벨 버전 =====
+# A (기본) : 격자 = 컵 축에 수직인 평면, 광선 = 컵 축 방향, 높이 = 컵 안바닥 기준.
+#            컵이 기울면 격자도 같이 기운다. 32x32, 반경 30mm(샘플 27mm), 유효 616셀.
+# B        : 위에서 수직으로 내려다본 그대로. 격자 = 월드 수평면, 광선 = 월드 -z,
+#            높이 = 바닥(z=0)부터의 절대 높이. 격자 원점은 컵 축의 (x,y).
+#            컵이 기울면 물의 수평 단면이 넓게 퍼지므로 격자를 넓게 잡는다.
+#              GRID_PLANE=world HEIGHT_REF=floor GRID_N=64 GRID_R_MM=56 SAMPLE_R_MM=0
+# 두 버전 모두 격자의 회전각은 카메라 광축의 방위 성분이 정한다(LABEL_FRAME=camera).
+GRID_N      = int(os.environ.get("GRID_N", 32))
+GRID_R      = float(os.environ.get("GRID_R_MM", 30.0))/1000.0     # 격자 반범위
+# 샘플 반경. 0 이거나 GRID_R 이상이면 원판 마스크 없이 정사각 격자를 다 쓴다.
+_SR         = float(os.environ.get("SAMPLE_R_MM", 27.0))/1000.0
+SAMPLE_R    = _SR if 0 < _SR < GRID_R else None
 CUP_BASE_Z  = 0.005
 RAY_START_Z = 0.45   # 도메인(컵 바닥 위 ~348mm)보다 높은 곳에서 쏜다
+# 높이 기준면: cup_bottom = 컵 안바닥에서 컵 축 방향 거리 / floor = 월드 z (바닥 z=0 기준)
+HEIGHT_REF  = os.environ.get("HEIGHT_REF", "cup_bottom").strip().lower()
+if HEIGHT_REF not in ("cup_bottom", "floor"):
+    raise RuntimeError(f"HEIGHT_REF 값이 이상하다: {HEIGHT_REF!r} (cup_bottom / floor)")
 
 # 공중의 물보라를 수면으로 잘못 잡지 않게 거르는 기준.
 # 예전에는 "컵 테두리보다 높으면 물방울"(RIM_MAX)로 잘랐는데, 그러면 테두리 위로
@@ -16,6 +30,10 @@ RAY_START_Z = 0.45   # 도메인(컵 바닥 위 ~348mm)보다 높은 곳에서 �
 # 높이가 아니라 두께다: 광선이 만나는 교점을 위에서부터 (윗면, 아랫면) 쌍으로 보고,
 # 그 층이 MIN_THICK보다 얇으면 물보라로 보고 건너뛴다.
 MIN_THICK   = float(os.environ.get("MIN_THICK_MM", 5.0))/1000.0
+# 컵 밖으로 나간 물은 렌더에서도 지우므로(render_gen 의 원통 불리언, 기본 31mm)
+# 라벨도 같은 반경 안의 물만 잡는다. B처럼 광선이 수직이면 이 제한이 없을 때
+# 컵 밖으로 흘러나간 물까지 잡혀 격자를 넘어간다.
+CUP_CLIP_R  = float(os.environ.get("CUP_CLIP_R_MM", 31.0))/1000.0
 MAX_H       = float(os.environ.get("MAX_H_MM", 300.0))/1000.0   # 컵 높이의 3배
 MAX_PAIRS   = int(os.environ.get("MAX_PAIRS", 12))              # 훑어볼 층 수
 
@@ -45,7 +63,7 @@ for _k, _v, _ok in (("LABEL_FRAME", LABEL_FRAME, ("camera", "cup")),
         raise RuntimeError(f"{_k} 값이 이상하다: {_v!r} ({' / '.join(_ok)} 중 하나)")
 # ================================================================
 
-_xs = np.linspace(-CUP_INNER_R, CUP_INNER_R, GRID_N)
+_xs = np.linspace(-GRID_R, GRID_R, GRID_N)
 EPS = 1e-5          # 같은 면을 다시 맞지 않게 교점에서 밀어내는 양(m)
 
 
@@ -158,7 +176,7 @@ def extract_height_field(water_object, cup_pose):
     hf = np.full((GRID_N, GRID_N), np.nan)
     for a, di in enumerate(_xs):
         for b, dj in enumerate(_xs):
-            if di*di + dj*dj > SAMPLE_R**2:
+            if SAMPLE_R is not None and di*di + dj*dj > SAMPLE_R**2:
                 continue
             o = mw_inv @ (base + e_i*di + e_j*dj + up*RAY_START_Z)
             # 위에서 아래로 쏘며 (윗면, 아랫면) 쌍을 차례로 받는다.
@@ -172,12 +190,14 @@ def extract_height_field(water_object, cup_pose):
                 h_cup = rel.dot(cup_up)        # 컵 축 기준 높이 (판정용)
                 if h_cup < 0:
                     break                      # 안바닥보다 아래 -> 물 없음
+                r_cup = (rel - cup_up*h_cup).length     # 컵 축에서의 거리
                 below = loc + d_local * EPS
                 hit2, loc2, _, _ = w_eval.ray_cast(below, d_local)
                 # 아랫면이 안 잡히면(수치 오차/열린 메시) 본체로 본다
                 thick = ((mw @ loc) - (mw @ loc2)).dot(up) if hit2 else MAX_H
-                if h_cup <= MAX_H and thick >= MIN_THICK:
-                    h = rel.dot(up)            # 라벨 좌표계 기준 높이
+                if h_cup <= MAX_H and thick >= MIN_THICK and r_cup <= CUP_CLIP_R:
+                    # 높이 값: 컵 안바닥 기준(축 방향) 또는 바닥 z=0 기준 절대 높이
+                    h = (mw @ loc).z if HEIGHT_REF == "floor" else rel.dot(up)
                     break
                 if not hit2:
                     break
@@ -186,6 +206,7 @@ def extract_height_field(water_object, cup_pose):
     return hf
 
 
-print(f"height_field_tool loaded: LABEL_FRAME={LABEL_FRAME}"
-      + (f" GRID_PLANE={GRID_PLANE} CAM_AZIM={CAM_AZIM} camera={_CAM.name}"
-         if _CAM is not None else ""))
+print(f"height_field_tool loaded: LABEL_FRAME={LABEL_FRAME} GRID_PLANE={GRID_PLANE} "
+      f"HEIGHT_REF={HEIGHT_REF} {GRID_N}x{GRID_N} 반경 {GRID_R*1000:.0f}mm "
+      f"샘플 {'전체' if SAMPLE_R is None else f'{SAMPLE_R*1000:.0f}mm'}"
+      + (f" CAM_AZIM={CAM_AZIM} camera={_CAM.name}" if _CAM is not None else ""))

@@ -18,6 +18,10 @@ Genesis(궤적) → mantaflow IDP-APIC(유체 시뮬) → Blender 4.5.3(렌더 +
 - `scripts/debug_frame.py` — 문제 프레임의 물 메시 위치 진단 (Blender 없이)
 - `scripts/overlay_label.py` — 렌더 이미지 위에 라벨 격자 겹쳐 보기
 - `scripts/make_sheet.py` — 4방향 이미지+높이필드 비교판
+- `scripts/make_sample.py` — 팀 공유용 샘플 (이미지+라벨 짝, 규격 포함)
+- `scripts/compare_ab.py` — 같은 프레임의 라벨 A/B 비교 그림
+- `scripts/check_renders.py` — 렌더 전수 검사 (화면 밖·인공 절단)
+- `scripts/fetch_traj.sh` — 세라프 결과를 로컬 dataset/ 로 받아 검증
 - `scripts/render_gen.py` — Blender 렌더
 - `scripts/gen_traj_batch.py` — 궤적 일괄 생성기
 - `scripts/make_traj.py` — Genesis npy → 궤적 txt 변환
@@ -32,19 +36,24 @@ Genesis(궤적) → mantaflow IDP-APIC(유체 시뮬) → Blender 4.5.3(렌더 +
 - 수위 55 / 65 / 75 / 85mm (params.csv에 기록)
 - 궤적 프레임 간격 8ms, 시뮬 프레임당 TFRAME=5.09, 정착 SETTLE_T=200
 - 표면 재구성: improvedParticleLevelset, radiusFactor 2.2, smoothen 3
-- 높이 필드: 32×32 float, 단위 m, 컵 안바닥 기준, 샘플 반경 27mm, 유효 616셀, 나머지 NaN
+- 높이 필드는 두 버전을 나란히 만든다 (둘 다 격자 회전각은 카메라 광축의 방위 성분 기준)
+  - A `heightA_cup_{e,n,w,s}`: 32×32 float, 단위 m. 격자 = 컵 축에 수직인 평면,
+    광선 = 컵 축 방향, 높이 = 컵 안바닥 기준 축방향 거리. 샘플 반경 27mm, 유효 616셀
+  - B `heightB_world_{e,n,w,s}`: 64×64 float, 단위 m. 격자 = 월드 수평면(±56mm),
+    광선 = 월드 -z, 높이 = 바닥(z=0) 기준 절대 높이. 유효 셀 = 물의 수평 단면이라
+    프레임마다 다르다(실측 890~1160). 컵이 기울면 단면이 퍼져 A보다 1.6배 넓어진다
+  - 환경변수: `GRID_N` `GRID_R_MM` `SAMPLE_R_MM`(0이면 원판 마스크 없음) `HEIGHT_REF=cup_bottom|floor`
+  - 두 버전 모두 컵 축에서 `CUP_CLIP_R_MM`(기본 31, 렌더의 원통 절단과 같은 값) 밖의
+    물은 잡지 않는다. 렌더에서 지운 물을 라벨이 잡으면 이미지와 어긋난다
 - 높이 상한 없음. 테두리(94mm) 위로 솟거나 넘치는 물도 값으로 담는다. 공중의 물보라는
   높이가 아니라 두께로 거른다: 교점을 (윗면, 아랫면) 쌍으로 보고 `MIN_THICK_MM`(기본 5)
   보다 얇으면 건너뛴다. 안전 상한은 `MAX_H_MM`(기본 300 = 컵 높이 3배)
 - NaN의 의미: 물이 없거나(광선이 아무것도 못 맞음, 컵 바닥 노출) 얇은 물보라뿐인 자리.
   "물이 높아서 잘린" NaN은 더 이상 없다
-- 라벨 격자: 평면은 컵 축에 수직(컵 로컬 xy), 광선은 컵 축 반대 방향, 높이는 컵 축 방향
-  거리. 이 평면 안에서 격자를 몇 도 돌릴지만 카메라가 정한다. j축 = 카메라 광축의 방위
-  성분을 컵 평면에 투영한 벡터, i축 = j축과 수직(i×j = 컵 축). 광축을 부감각까지 통째로
+- 격자 회전각(두 버전 공통): j축 = 카메라 광축의 방위 성분을 격자 평면에 투영한 벡터, i축 = j축과 수직(i×j = 컵 축). 광축을 부감각까지 통째로
   투영하면 컵이 기울 때 네 방향이 90도씩 벌어지지 않는다. 컵 자기축 회전은 라벨에 안 들어감
 - 환경변수: `LABEL_FRAME=camera`(기본) / `cup`(예전 방식),
-  `GRID_PLANE=cup`(기본) / `world`(월드 수평면+수직 광선. 컵이 기울면 자유수면 대신
-  물-벽 접촉선을 재는 셀이 생겨 권장하지 않음), `CAM_AZIM=view`(기본, 광축) / `position`
+  `GRID_PLANE=cup`(A) / `world`(B), `CAM_AZIM=view`(기본, 광축) / `position`
 - 카메라: Camera_e / _n / _w / _s. 네 대는 완전 대칭이어야 한다 — 같은 수평거리
   1.202m, 같은 높이 1.352m, 같은 렌즈 57.09mm, 같은 부감각 45도, shift 0,
   방위각만 90도씩(180/270/0/90). 목표점 cam_target (0.55, 0.19, 0.15).
