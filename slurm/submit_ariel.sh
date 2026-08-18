@@ -31,7 +31,8 @@ IFS=',' read -ra ND <<< "$NODES"
 echo "노드 ${#ND[@]}개: $NODES"
 
 # 큐 여유 확인
-Q=$(squeue -u $USER -h | wc -l)
+# -r 없이 세면 대기 중인 배열이 한 줄로 접혀 과소 계산된다. 반드시 -r 로 센다.
+Q=$(squeue -u $USER -h -r | wc -l)
 N=$#
 if [ $((Q + N)) -gt $MAXQ ]; then
   echo "큐에 $Q 개가 있고 $N 개를 더 넣으면 한도($MAXQ)를 넘는다."

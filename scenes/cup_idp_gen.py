@@ -644,17 +644,20 @@ for t in range(TOTAL):
         # 이름을 바꿔 넣는다(같은 파일시스템에서 원자적). 판정 기준인 .json 을 마지막에
         # 넣어서, 읽는 쪽이 .uni 와 .json 을 둘 다 본 시점에는 내용이 완성돼 있게 한다.
         os.makedirs(os.path.dirname(_SETTLE_CACHE), exist_ok=True)
+        # mantaflow 는 확장자로 형식을 정한다. 임시 이름에도 .uni 를 남겨야 한다.
         _tag = '.tmp%d' % os.getpid()
-        pp.save(_SETTLE_CACHE + _tag)
-        pVel.save(_SETTLE_CACHE.replace('.uni', '_vel.uni') + _tag)
-        with open(_SETTLE_META + _tag, 'w') as _sf:
+        _tmp_uni = _SETTLE_CACHE.replace('.uni', _tag + '.uni')
+        _tmp_vel = _SETTLE_CACHE.replace('.uni', '_vel' + _tag + '.uni')
+        _tmp_js  = _SETTLE_META.replace('.json', _tag + '.json')
+        pp.save(_tmp_uni)
+        pVel.save(_tmp_vel)
+        with open(_tmp_js, 'w') as _sf:
             _json.dump({'cupCenterX':cupCenterX, 'cupBottom':cupBottom, 'cupCenterZ':cupCenterZ,
                         'water_level':WATER_LEVEL, 'gs':[gs.x,gs.y,gs.z], 'H':H,
                         'traj_file':TRAJ_FILE}, _sf, indent=2)
-        os.replace(_SETTLE_CACHE + _tag, _SETTLE_CACHE)
-        os.replace(_SETTLE_CACHE.replace('.uni', '_vel.uni') + _tag,
-                   _SETTLE_CACHE.replace('.uni', '_vel.uni'))
-        os.replace(_SETTLE_META + _tag, _SETTLE_META)
+        os.replace(_tmp_uni, _SETTLE_CACHE)
+        os.replace(_tmp_vel, _SETTLE_CACHE.replace('.uni', '_vel.uni'))
+        os.replace(_tmp_js, _SETTLE_META)
         print('[settle] 캐시 저장: %s (배치 x=%.1f y=%.1f z=%.1f)'
               % (_SETTLE_CACHE, cupCenterX, cupBottom, cupCenterZ), flush=True)
     if t < SETTLE_T or (round((t-SETTLE_T)/TFRAME)*TFRAME+SETTLE_T-t)**2 > 0.30:
