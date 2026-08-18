@@ -219,3 +219,114 @@ QOS 제출 한도(shawnbest 기준 10) 안에서 나눠 던진다.
     python3 check_labels.py out/XXXX      # 라벨: 616셀·마스크·4방향 회전 관계
     python3 check_renders.py out/XXXX     # 렌더: 화면 밖·인공 절단·빈 프레임
     python3 debug_frame.py sim_XXXX 84    # 문제 프레임의 물 메시 위치
+
+---
+
+# 부록: ariel 계정 (sh.park0203) 실측 정보와 실행 절차
+
+moana(shawnbest)와 다른 점이 많아 따로 정리한다. 아래 값은 2026-08-18 직접 확인한 것이다.
+
+## 확인된 환경
+
+| 항목 | moana | **ariel** |
+|---|---|---|
+| 접속 | `ssh -p 30080 shawnbest@moana.khu.ac.kr` | `ssh sh.park0203@ariel.khu.ac.kr` (키 인증) |
+| 작업 경로 | `/data/$USER` | **`/nas2/data/$USER`** (220T 중 112T 여유) |
+| `$HOME` | 계산 노드와 공유 안 됨 | **공유됨** |
+| conda | `anaconda3` | **`miniconda3`** (`fluid` = python 3.10.20 + numpy 2.2.6) |
+| SLURM account / QOS | `ugrad_ce` / `ugrad` | **`grad` / `grad`** |
+| 파티션 | `batch_ce_ugrad` | **`batch_grad`** (배치) / `debug_grad` (대화형 전용) |
+| 큐 제출 한도 | 10 | **20** |
+| 동시 실행 | 2 | **10** |
+| GPU 한도 | 1 | **4** |
+| GPU | RTX A5000 | ariel-v* = **RTX A5000 24GB**, ariel-g* = **RTX 3090 24GB** |
+
+이미 설치돼 있어 **새로 깔 것이 없다**: Blender 4.5.3 LTS, miniconda3(`fluid`),
+mantaflow 빌드(`/nas2/data/$USER/mantaflow/build/manta`). mantaflow 소스
+`implicitdensityprojection.cpp` 는 우리 수정본과 md5 가 같고 빌드가 그 이후라
+**재빌드 불필요**.
+
+## 제출 규칙 (실측)
+
+이 클러스터에는 제출 검사 플러그인이 있다. 직접 시험해 확인한 결과다.
+
+1. **대화형(`srun`)은 이름에 `debug` 가 든 파티션에만** 넣을 수 있다.
+   배치는 `batch_grad` 로 보낸다.
+2. **`--gres=gpu:1` 은 노드를 `-w` 로 하나 지정해야만 통과한다.**
+   `-x ariel-k1,...`, `-x m1,...`, `-x ariel-k[1-2],...`, `--exclude=...` 는 **전부 거부**됐다.
+   `-w ariel-v[1-13]` 처럼 범위를 주면 `-N 13-1` 오류가 난다(노드 목록이 곧 노드 수).
+   → 통과하는 유일한 형태는 **`-w <노드 하나>`**.
+3. 쓸 수 있는 노드: `ariel-g[1-5]`, `ariel-v[1-13]`.
+   `ariel-k1,k2,m1,m2,n1` 은 high_perf 라 QOS(`gres/gpu:high_perf=0`)상 못 쓴다.
+
+그래서 `slurm/submit_ariel.sh` 가 인덱스를 노드에 돌아가며 배정하고
+**노드마다 배열을 하나씩(`%1`)** 던진다. 노드 4개 = 동시 4개 = GPU 한도와 일치.
+
+## 실행 절차
+
+### 0) 파일 올리기 (로컬에서)
+
+    A=sh.park0203@ariel.khu.ac.kr
+    R=/nas2/data/sh.park0203
+    ssh $A "mkdir -p $R/water_cup/{batch,logs}"
+    scp scripts/{height_field_tool,extract_gen,render_gen,make_traj,check_labels,debug_frame,make_sheet,make_sample,overlay_label,check_renders}.py $A:$R/water_cup/
+    scp slurm/batch_job_ariel.sh slurm/submit_ariel.sh slurm/progress_ariel.sh $A:$R/water_cup/
+    scp water_scene_final.blend $A:$R/water_cup/
+    scp traj/batch/traj_00*.txt traj/batch/params.csv $A:$R/water_cup/batch/
+    scp scenes/cup_idp_gen.py $A:$R/mantaflow/scenes/
+    ssh $A "chmod +x $R/water_cup/*.sh"
+
+> 클러스터에 있던 스크립트는 8월 12~13일 것이라 그동안의 수정이 하나도 없다.
+> 반드시 덮어써야 한다. 궤적과 params.csv 도 새 것으로 바꾼다.
+
+### 1) 정착 캐시 먼저 (수위 4종, 병렬로 안전)
+
+수위가 다르면 캐시 파일도 다르므로 **서로 경쟁하지 않는다.** 1/6/12/18 은
+각각 55/65/75/85mm 라 4개를 동시에 돌려도 안전하고, 이 4개는 결과물까지 완성된다.
+
+    ssh $A "cd $R/water_cup && ./submit_ariel.sh 1 6 12 18"
+
+끝나면 캐시 4종이 생겼는지 확인한다.
+
+    ssh $A "ls $R/water_cup/settle_cache/*.json"
+
+### 2) 시험 확인
+
+    ssh $A "cd $R/water_cup && source $R/miniconda3/etc/profile.d/conda.sh && conda activate fluid
+            for i in 0001 0018; do echo == \$i
+              for c in e n w s; do echo -n \"\$c 라벨 \$(ls out/\$i/height_\$c/*.npy|wc -l) 이미지 \$(ls out/\$i/\${c}_*.png|wc -l)  \"; done; echo
+              python3 check_labels.py out/\$i | grep -E '총평'
+              python3 check_renders.py out/\$i | grep -E '총평'
+            done"
+
+통과 기준: 라벨·이미지 개수가 같고, 두 검사 모두 `모두 정상`/`모두 통과`.
+
+### 3) 나머지 21개
+
+큐 한도가 20이라 두 번에 나눈다.
+
+    ssh $A "cd $R/water_cup && ./submit_ariel.sh 2 3 4 5 7 8 9 10 11 13 14 15 16"   # 13개
+    # 큐가 비어가면
+    ssh $A "cd $R/water_cup && ./submit_ariel.sh 17 19 20 21 22 23 24 25"           # 8개
+
+`submit_ariel.sh` 는 큐 여유를 먼저 확인하고 한도를 넘으면 던지지 않고 알려준다.
+
+### 4) 진행 확인과 회수
+
+    ssh $A "$R/water_cup/progress_ariel.sh"
+    REMOTE=$A RROOT=$R/water_cup PORT=22 scripts/fetch_traj.sh $(seq 1 25)
+
+> `fetch_traj.sh` 는 `PORT` 를 환경변수로 받는다(ariel 은 22).
+
+## 예상 소요 시간
+
+궤적당 약 40~47분(시뮬 5~13분 + 라벨 4방향 1분 + 렌더 400장 31분).
+캐시가 있으면 시뮬이 4분쯤 빨라진다.
+
+- 1단계(캐시 4개, 병렬 4): **약 50분**
+- 나머지 21개, 동시 4개: 21/4 = 6묶음 × 약 42분 = **약 4시간 20분**
+- **합계 약 5시간** (moana 에서 순차로 돌리면 18시간)
+
+ariel-g* 는 RTX 3090, ariel-v* 는 A5000 이다. Cycles 렌더는 3090 이 대체로
+20~30% 빠르므로 g 노드에 배정된 궤적이 먼저 끝난다. 시간 예측은 느린 쪽(A5000)
+기준이다.
